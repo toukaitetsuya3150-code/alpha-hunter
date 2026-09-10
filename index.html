@@ -172,7 +172,7 @@
       <input type="range" id="wGrowth" min="0" max="100" value="15"></div>
     <button class="btn" id="rescore">重新打分</button>
     <button class="btn ghost" id="trained">🧠 应用回测优化权重</button>
-    <div class="hint" id="trainedHint">基于近一年16只样本股、2896个交易日的因子IC回测训练。</div>
+    <div class="hint" id="trainedHint">基于近一年16只样本股、2896个交易日的因子IC回测训练（v3.5已修正量能方向：涨放加分/跌放减分）。</div>
     <div class="hint" id="eventBanner" style="color:var(--warn)"></div>
 
     <h2>智能选股 / AUTO SCAN</h2>
@@ -409,7 +409,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '3.4.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '3.5.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -430,6 +430,15 @@ function migrateData(){
       localStorage.setItem('ah_w', JSON.stringify(oldW));
     }
     // 旧持仓没有 iFinD 标记，不需要处理
+  }
+  // v3.4 → v3.5：量能因子改为方向感知，旧的"缩量偏好"配置（volSign=-1 / 动量0%·量能60%）作废
+  if(compareVer(lastVer,'3.5.0') < 0){
+    localStorage.setItem('ah_volsign','1');
+    const oldW2 = JSON.parse(localStorage.getItem('ah_w')||'null');
+    if(oldW2 && oldW2.momen===0 && oldW2.vol===60){
+      localStorage.setItem('ah_w', JSON.stringify({momen:20,vol:40,val:20,risk:20,growth:15}));
+      toast('⚙ 算法升级：量能因子已改为方向感知，旧回测权重已自动修正');
+    }
   }
   // v3.0 以下大版本不兼容，提示导出备份
   if(compareVer(lastVer, MIN_COMPAT) < 0){
@@ -766,8 +775,11 @@ async function scanBottom(){
       // ① 基本面：盈利且不贵的大中盘
       if(pe<5 || pe>45) return false;
       if(cap<100) return false;
-      // ② 底部震荡：近60日未大涨未大跌，年内未透支
-      if(d60<-15 || d60>8) return false;
+      // ② 底部区域：近60日未大涨，年内未透支
+      //    d60下限放宽至-30%：覆盖"暴跌后底部企稳"形态（如大唐发电式深跌反转）；
+      //    但深跌票（d60<-15）必须满足更强的反转确认：涨幅≥1%且量比≥1.5
+      if(d60<-30 || d60>8) return false;
+      if(d60<-15 && (pct<1 || lb<1.5)) return false;
       if(ytd>=25) return false;
       // ③ 启动信号：今日温和放量上涨，收在日内上半区
       if(pct<0.3 || pct>9.4) return false;
@@ -925,9 +937,10 @@ const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
    网格搜索最优组合：量能60%·风险20%·估值20%·动量0%
    组合IC=+0.070  t=3.60  日胜率63%
    ============================================================ */
-const TRAINED = { momen:0, vol:60, val:20, risk:20, volSign:-1 };  // volSign=-1: 缩量得分更高
-let volSign = +(localStorage.getItem('ah_volsign')
-  || (localStorage.getItem('ah_w')==='{"momen":0,"vol":60,"val":20,"risk":20}' ? -1 : 1));  // 已应用回测权重的老会话自动修正量能方向
+// 修正版训练权重：量能因子已方向感知（涨放+/跌放-），负号反转作废；动量权重恢复
+// 旧版教训：volSign=-1 会把"放量启动"（如底部突破日）按最大权重反向扣分，与量价配合常识冲突
+const TRAINED = { momen:20, vol:40, val:20, risk:20, volSign:1 };
+let volSign = +(localStorage.getItem('ah_volsign') || 1);  // v3.5 迁移已强制复位旧值
 
 // ---- 大事件日历：事件前5个交易日进入"防护模式"（风险因子权重×1.5）----
 const EVENTS = [
@@ -962,7 +975,7 @@ document.getElementById('trained').onclick = ()=>{
   localStorage.setItem('ah_w',JSON.stringify(W));
   localStorage.setItem('ah_volsign', volSign);
   score(); render();
-  toast('已应用回测权重：量能60·风险20·估值20·动量0（缩量优先）');
+  toast('已应用修正版回测权重：量能40·动量20·估值20·风险20（量能方向感知）');
 };
 
 function score(){
@@ -983,9 +996,13 @@ function score(){
     }
     return intraday*0.6 + trend*0.4;
   });
+  // 量能：方向感知。放量本身无好坏——上涨放量=资金进场(+)，下跌放量=派发(-)
   const fVol = DATA.map(d=>{
     const lb=(+d.f10)||1, hs=(+d.f8)||0;
-    return Math.log(1+lb)*2 + Math.log(1+hs);           // 量比换手对数合成
+    const mag = Math.log(1+lb)*2 + Math.log(1+hs);      // 量能强度
+    const pct = (+d.f3)||0;
+    const dir = pct>0.3 ? 1 : (pct<-0.3 ? -1 : 0.3);    // 量价方向：涨放+，跌放-，平盘放量谨慎
+    return mag*dir;
   });
   // 估值：PE(TTM)为主锚(60%) + PB为辅锚(40%)，双向截断防"价值陷阱"超低PE刷分
   const fVal = DATA.map(d=>{
@@ -996,10 +1013,11 @@ function score(){
     return pbScore===null ? peScore : peScore*0.6 + pbScore*0.4;
   });
   const fRisk = DATA.map(d=>{
-    const hi=(+d.f15)||0, lo=(+d.f16)||0, pre=(+d.f18)||1;
+    const hi=(+d.f15)||0, lo=(+d.f16)||0, pre=(+d.f18)||1, last=(+d.f2)||0;
     const amp = pre>0 ? (hi-lo)/pre*100 : 10;           // 振幅%
+    const pos = hi>lo ? (last-lo)/(hi-lo) : .5;         // 收盘位置：收高位=进攻性振幅，减轻惩罚
     const cap = (+d.f20)||1e9;
-    return -amp + Math.log10(cap)/2;                    // 低振幅+大市值加分
+    return -amp*(1.5-pos) + Math.log10(cap)/2;          // 收最低罚1.5倍振幅，收最高只罚0.5倍
   });
   // --- iFinD成长因子：预测净利增速为主、营收增速为辅；无数据的票给中性0 ---
   const gRaw = DATA.map(d=>{

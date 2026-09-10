@@ -1,7 +1,7 @@
 {
-  "version": "3.4.0",
+  "version": "3.5.0",
   "minVersion": "3.0.0",
-  "changelog": "算法优化：中期趋势动量+PE/PB双锚估值+截尾标准化",
+  "changelog": "算法修复：量能方向感知+振幅按收盘位置调整+底部扫描覆盖深跌反转",
   "force": false,
   "updatedAt": "2026-09-10",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
