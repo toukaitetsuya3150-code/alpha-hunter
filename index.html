@@ -409,7 +409,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '3.3.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '3.4.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -662,8 +662,8 @@ function secid(code){
 }
 
 // ---- 行情拉取 ----
-const FIELDS = 'f2,f3,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21'; 
-// f2价 f3涨幅% f8换手 f9PE f10量比 f12代码 f14名称 f15高 f16低 f17开 f18昨收 f20总市值 f21流通市值
+const FIELDS = 'f2,f3,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f24,f115';
+// f2价 f3涨幅% f8换手 f9PE f10量比 f12代码 f14名称 f15高 f16低 f17开 f18昨收 f20总市值 f21流通市值 f23PB f24六十日涨幅% f115_PE(TTM)
 async function fetchQuotes(){
   toast('行情刷新中…');
   try{
@@ -745,7 +745,7 @@ async function scanBottom(){
   document.getElementById('scanBottom').disabled = true;
   try{
     const fs = 'm:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80';
-    const fld = FIELDS+',f6,f24,f25';
+    const fld = FIELDS+',f6,f25';
     let all = [];
     for(let pn=1; pn<=4; pn++){                      // 4页×100=400只，底部票成交额可能不在最前列，多扫一页
       toast(`🚀 扫描中… 第 ${pn}/4 页`);
@@ -812,7 +812,7 @@ async function scanBoards(){
     let all = [];
     for(const b of boards){
       toast(`🔥 扫描板块：${b.f14}（60日${(+b.f24).toFixed(1)}%）`);
-      const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn=1&pz=15&po=1&np=1&fid=f6&fs=b:'+b.f12+'&fields='+FIELDS+',f6,f24,f25', 3);
+      const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn=1&pz=15&po=1&np=1&fid=f6&fs=b:'+b.f12+'&fields='+FIELDS+',f6,f25', 3);
       const list = (r&&r.data&&r.data.diff)||[];
       list.forEach(d=>{ d._board = b.f14; });
       all = all.concat(list);
@@ -902,7 +902,15 @@ function addToPool(code){
 /* ============================================================
    多因子打分内核（z-score 横截面标准化）
    ============================================================ */
-function z(arr){ // 返回标准化后的数组
+/* 截尾（winsorize）：把极端值压回 5%/95% 分位，防一只妖股污染整个横截面标准化 */
+function winsorize(arr, loQ=0.05, hiQ=0.95){
+  const s = arr.slice().sort((a,b)=>a-b);
+  const q = p => s[Math.min(s.length-1, Math.max(0, Math.round(p*(s.length-1))))];
+  const lo = q(loQ), hi = q(hiQ);
+  return arr.map(x=>Math.min(hi, Math.max(lo, x)));
+}
+function z(arr){ // 截尾后再标准化，返回 z 分数数组
+  arr = winsorize(arr);
   const m = arr.reduce((a,b)=>a+b,0)/arr.length;
   const sd = Math.sqrt(arr.map(x=>(x-m)**2).reduce((a,b)=>a+b,0)/arr.length) || 1;
   return arr.map(x=>(x-m)/sd);
@@ -960,19 +968,32 @@ document.getElementById('trained').onclick = ()=>{
 function score(){
   if(!DATA.length){ SCORED=[]; return; }
   // --- 原始因子 ---
+  // 动量：日内动量(60%) + 中期趋势(40%)。中期项奖励60日温和上行、惩罚过热与阴跌
   const fMomen = DATA.map(d=>{
     const pct = (+d.f3)||0;
     const hi=(+d.f15)||0, lo=(+d.f16)||0, last=(+d.f2)||0;
     const pos = hi>lo ? (last-lo)/(hi-lo) : .5;       // 日内区间位置 0~1
-    return pct + (pos-.5)*4;                            // 涨幅 + 位置修正
+    const intraday = pct + (pos-.5)*4;                  // 日内动量
+    const d60raw = d.f24;
+    let trend = 0;
+    if(d60raw!==undefined && d60raw!==null && d60raw!=='-'){
+      const d60 = +d60raw;
+      trend = Math.max(-25, Math.min(25, d60)) / 25 * 3; // 60日趋势项，封顶±3
+      if(d60 > 35) trend -= (d60-35)/10;                 // 60日涨超35%：过热递减惩罚
+    }
+    return intraday*0.6 + trend*0.4;
   });
   const fVol = DATA.map(d=>{
     const lb=(+d.f10)||1, hs=(+d.f8)||0;
     return Math.log(1+lb)*2 + Math.log(1+hs);           // 量比换手对数合成
   });
+  // 估值：PE(TTM)为主锚(60%) + PB为辅锚(40%)，双向截断防"价值陷阱"超低PE刷分
   const fVal = DATA.map(d=>{
-    const pe=(+d.f9)||0;
-    return pe>0 ? -Math.log(pe) : -Math.log(120);       // 亏损/无PE按贵处理
+    const peTTM = (+d.f115)||(+d.f9)||0;
+    const pb = (+d.f23)||0;
+    const peScore = peTTM>0 ? -Math.log(Math.max(8, Math.min(200, peTTM))) : -Math.log(150);
+    const pbScore = pb>0 ? -Math.log(Math.max(0.5, Math.min(15, pb))) : null;
+    return pbScore===null ? peScore : peScore*0.6 + pbScore*0.4;
   });
   const fRisk = DATA.map(d=>{
     const hi=(+d.f15)||0, lo=(+d.f16)||0, pre=(+d.f18)||1;
