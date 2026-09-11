@@ -409,7 +409,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '3.5.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '3.5.1';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -559,6 +559,7 @@ function switchTab(t){
   if(t==='sim'){
     document.getElementById('modeTag').textContent='模拟交易';
     // 无条件先刷新持仓现价 → 渲染 → 再判断是否做每日结算
+    repairSimTrades();
     simUpdatePrices().then(()=>{
       renderSim();
       simSettlement().then(()=>renderSim());
@@ -1457,19 +1458,29 @@ async function runSimTrade(scored){
   const topCodes = new Set(scored.map(s=>s.code));
 
   // ---- 卖出：评分<50 或 破止损 或 掉出Top20 ----
+  // v3.5.1 修复：掉出Top20的持仓不在扫描结果里，无报价 → 先补拉实时价再卖，杜绝0元成交
+  const missing = heldCodes.filter(c=>!scored.find(s=>s.code===c));
+  const livePrice = {};
+  for(let i=0;i<missing.length;i+=10){
+    try{
+      const res = await jsonpRetry('/api/qt/ulist.np/get?fltt=2&invt=2&fields=f2,f12&secids='+missing.slice(i,i+10).map(secid).join(','), 3);
+      (res&&res.data&&res.data.diff||[]).forEach(d=>{ if(d.f2 && d.f2!=='-') livePrice[d.f12]=+d.f2; });
+    }catch(e){}
+  }
   heldCodes.forEach(code=>{
     const pos = SIM.positions[code];
     const r = scored.find(s=>s.code===code);
     const plan = r ? tradePlan(r) : null;
-    const price = r ? r.price : 0;
+    // 价格三级回退：扫描价 → 实时补拉价 → 最近已知价 → 成本价（任何情况下不为0）
+    const price = r ? r.price : (livePrice[code] || pos.lastPrice || pos.cost);
     let reason = '';
     if(!r) reason = '掉出Top20';
     else if(r.score < 50) reason = '评分跌破50';
     else if(plan && price < +plan.stop) reason = '触发止损 '+plan.stop;
-    if(reason){
+    if(reason && price>0){
       const val = price * pos.qty;
       SIM.cash += val;
-      SIM.trades.push({date:today, code, name:pos.name, type:'卖出', price, qty:pos.qty, reason, val});
+      SIM.trades.push({date:today, code, name:pos.name, type:'卖出', price:+price.toFixed(2), qty:pos.qty, reason, val:Math.round(val)});
       delete SIM.positions[code];
     }
   });
@@ -1517,6 +1528,39 @@ async function simUpdatePrices(){
     }catch(e){}
   }
   saveSim();
+}
+
+/* ---- v3.5.1 坏账修复：历史"掉出Top20卖出价=0"的交易，用当日K线收盘价补记并退回资金 ---- */
+async function repairSimTrades(){
+  if(!SIM.enabled) return;
+  if(localStorage.getItem('ah_simfix351')==='1') return;
+  const bad = SIM.trades.filter(t=>t.type==='卖出' && (!t.price || +t.price===0));
+  localStorage.setItem('ah_simfix351','1');           // 无论是否有坏账都只跑一次
+  if(!bad.length) return;
+  let fixed = 0;
+  for(const t of bad){
+    try{
+      const mkt = /^6/.test(t.code) ? 'sh' : 'sz';
+      const r = await fetch('https://proxy.finance.qq.com/ifzqgtimg/appstock/app/newfqkline/get?param='+mkt+t.code+',day,,,400,qfq');
+      const j = await r.json();
+      const k = j && j.data && j.data[mkt+t.code];
+      const arr = (k && (k.qfqday || k.day)) || [];
+      const bar = arr.find(b=>b[0]===t.date);
+      if(bar){
+        const close = +bar[2];
+        t.price = close;
+        t.val = Math.round(close * t.qty);
+        t.reason = (t.reason||'') + '·已按当日收盘价补记';
+        SIM.cash += t.val;                            // 当时按0成交，现在补回真实卖出款
+        fixed++;
+      }
+    }catch(e){}
+  }
+  if(fixed){
+    saveSim();
+    toast('🔧 已修复 '+fixed+' 笔卖出价为0的历史坏账，资金已按当日收盘价补回账户');
+    if(activeTab==='sim') renderSim();
+  }
 }
 
 /* ---- 每日结算：拉现价算市值，记收益率曲线 ---- */

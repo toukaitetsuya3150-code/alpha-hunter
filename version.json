@@ -1,8 +1,8 @@
 {
-  "version": "3.5.0",
+  "version": "3.5.1",
   "minVersion": "3.0.0",
-  "changelog": "算法修复：量能方向感知+振幅按收盘位置调整+底部扫描覆盖深跌反转",
+  "changelog": "修复：掉出Top20卖出价=0的资金漏洞+历史坏账自动补记",
   "force": false,
-  "updatedAt": "2026-09-10",
+  "updatedAt": "2026-09-11",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
