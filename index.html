@@ -144,6 +144,9 @@
     box-shadow:0 4px 24px rgba(0,244,142,.35);animation:toastIn .18s ease-out}
   @keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(8px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
   textarea:focus,#search:focus,#saSearch:focus,.sa-input:focus{border-color:var(--acc);outline:none;box-shadow:0 0 0 2px rgba(0,244,142,.15)}
+  /* 前瞻预测视图在独立盒子内，表头不吸顶（避免遮挡第1名行） */
+  #viewFcst thead th{position:static;background:transparent}
+  #viewFcst td{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -215,6 +218,7 @@
       <button class="tab" data-tab="market">全市场扫描</button>
       <button class="tab" data-tab="bottom">底部突破</button>
       <button class="tab" data-tab="board">主线板块</button>
+      <button class="tab" data-tab="fcst">前瞻预测</button>
       <button class="tab" data-tab="stock">个股分析</button>
       <button class="tab" data-tab="hold">我的持仓</button>
       <button class="tab" data-tab="hist">历史追踪</button>
@@ -305,6 +309,26 @@
             <button class="btn" id="hImport" style="width:auto;padding:6px 16px;margin-top:0">导入恢复</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ===== 前瞻预测视图 ===== -->
+    <div id="viewFcst" style="display:none">
+      <div class="sa-box">
+        <h3>未来20日横截面排名预测 / FORWARD RANK</h3>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+          <button class="btn" id="fcstRun" style="width:auto;padding:8px 22px;margin-top:0">🔮 运行预测</button>
+          <span class="hint">流水线：MAD去极值 → 市值中性化 → 滚动IC权重合成 → 历史回归映射预期超额收益。<br>
+          预测的是<b>全市场相对排名</b>（谁跑赢谁），不是绝对涨幅；超额收益基准=上证指数。</span>
+        </div>
+      </div>
+      <div class="sa-box" style="margin-top:14px">
+        <h3>预测榜单 / TOP20<span id="fcstMeta" style="color:var(--dim);font-weight:400"></span></h3>
+        <div id="fcstBody" style="overflow-x:auto">尚未运行预测</div>
+      </div>
+      <div class="sa-box" style="margin-top:14px">
+        <h3>预测准确率 / ACCURACY TRACKER</h3>
+        <div id="fcstAcc" style="overflow-x:auto">暂无已结算的预测记录（预测归档满20个交易日后自动结算并计算准确率）</div>
       </div>
     </div>
 
@@ -409,7 +433,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '3.5.1';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '3.8.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -515,8 +539,8 @@ let DATA = [];          // 当前页签的原始数据
 let SCORED = [];        // 当前页签的打分结果
 let MODE = 'pool';      // 兼容旧逻辑
 // ---- 四页签独立存储，互不干扰 ----
-const TABS = { pool:{scored:[],time:''}, market:{scored:[],time:''}, bottom:{scored:[],time:''}, board:{scored:[],time:''} };
-const TAB_NAMES = { pool:'自选池', market:'全市场 Top20', bottom:'底部突破 Top20', board:'主线板块' };
+const TABS = { pool:{scored:[],time:''}, market:{scored:[],time:''}, bottom:{scored:[],time:''}, board:{scored:[],time:''}, fcst:{scored:[],time:'',model:null} };
+const TAB_NAMES = { pool:'自选池', market:'全市场 Top20', bottom:'底部突破 Top20', board:'主线板块', fcst:'前瞻预测 Top20' };
 let activeTab = 'pool';
 let LAST_IDX = null;
 
@@ -552,10 +576,17 @@ function switchTab(t){
   document.getElementById('viewHold').style.display  = (t==='hold')?'block':'none';
   document.getElementById('viewHist').style.display  = (t==='hist')?'block':'none';
   document.getElementById('viewSim').style.display   = (t==='sim')?'block':'none';
-  document.getElementById('viewTable').style.display = (t==='stock'||t==='hold'||t==='hist'||t==='sim')?'none':'block';
+  document.getElementById('viewFcst').style.display  = (t==='fcst')?'block':'none';
+  document.getElementById('viewTable').style.display = (t==='stock'||t==='hold'||t==='hist'||t==='sim'||t==='fcst')?'none':'block';
   if(t==='stock') return;
   if(t==='hold'){ document.getElementById('modeTag').textContent='我的持仓'; refreshHoldings(); return; }
   if(t==='hist'){ document.getElementById('modeTag').textContent='历史追踪'; renderHistory(); return; }
+  if(t==='fcst'){
+    document.getElementById('modeTag').textContent='前瞻预测 Top20'+(TABS.fcst.time?(' · '+TABS.fcst.time):'');
+    renderFcstAcc();
+    if(TABS.fcst.scored.length) renderFcst(); else scanForecast();
+    return;
+  }
   if(t==='sim'){
     document.getElementById('modeTag').textContent='模拟交易';
     // 无条件先刷新持仓现价 → 渲染 → 再判断是否做每日结算
@@ -872,6 +903,196 @@ async function scanBoards(){
 }
 document.getElementById('scanBoard').onclick = scanBoards;
 
+/* ============================================================
+   前瞻预测引擎：未来20日收益的横截面排名 Top20
+   流水线：全市场活跃股 → 硬过滤 → 因子打分(MAD+中性化+IC权重)
+          → 历史回归(综合分→20日超额收益) → 预测排名
+   预测目标：相对排名（谁跑赢谁），基准=上证指数
+   ============================================================ */
+async function scanForecast(){
+  toast('🔮 正在运行20日前瞻排名预测…');
+  document.getElementById('fcstRun').disabled = true;
+  try{
+    const fs = 'm:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80';
+    let all = [];
+    for(let pn=1; pn<=3; pn++){
+      toast(`🔮 预测中… 拉取第 ${pn}/3 页`);
+      const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn='+pn+'&pz=100&po=1&np=1&fid=f6&fs='+fs+'&fields='+FIELDS+',f6', 3);
+      if(r && r.data && r.data.diff) all = all.concat(r.data.diff);
+    }
+    if(!all.length) throw new Error('empty');
+    // 基础过滤：剔除不可交易与极端状态（预测覆盖面比扫描宽，不卡PE/量比）
+    all = all.filter(d=>{
+      if(!d.f2 || d.f2==='-') return false;
+      if(/ST|退/.test(d.f14||'')) return false;
+      const pct = +d.f3;
+      if(pct>=9.4 || pct<=-7) return false;
+      if((+d.f20)/1e8 < 20) return false;                 // 排除微型股噪音
+      return true;
+    });
+    MODE='scan'; DATA=all; score();
+    const universe = SCORED;
+
+    // --- 预测分：IC权重合成（数据足够时），否则回退显示权重综合分 ---
+    const icW = icWeights();
+    const predOf = (f, score)=> icW
+      ? (icW.m*f.m + icW.v*f.v + icW.va*f.va + icW.r*f.r + icW.g*f.g)
+      : score;
+
+    // --- 历史回归：预测分 → 20日超额收益（用近12期已结算榜单拟合） ---
+    const pts = [];
+    HISTORY.records.filter(r=>r.checked && r.benchNow && r.benchPrice).slice(-12).forEach(r=>{
+      const bRet = (r.benchNow/r.benchPrice-1)*100;
+      r.scored.forEach(s=>{ if(s.nowRet!==undefined) pts.push([predOf(s.f, s.score), s.nowRet-bRet]); });
+    });
+    let alpha=null, beta=null, r2=null;
+    if(pts.length>=30){
+      const mx=pts.reduce((a,p)=>a+p[0],0)/pts.length, my=pts.reduce((a,p)=>a+p[1],0)/pts.length;
+      let sxy=0,sxx=0,syy=0;
+      pts.forEach(p=>{ sxy+=(p[0]-mx)*(p[1]-my); sxx+=(p[0]-mx)*(p[0]-mx); syy+=(p[1]-my)*(p[1]-my); });
+      beta  = sxx>1e-9 ? sxy/sxx : 0;
+      alpha = my - beta*mx;
+      r2    = (sxx>1e-9 && syy>1e-9) ? (sxy*sxy)/(sxx*syy) : 0;
+    }
+
+    const top = universe.slice().sort((a,b)=>predOf(b.f,b.score)-predOf(a.f,a.score)).slice(0,20);
+    top.forEach((r,i)=>{
+      r.fRank = i+1;
+      r.pred  = predOf(r.f, r.score);
+      r.fExp  = (alpha!==null) ? (alpha + beta*r.pred) : null;   // 预期20日超额收益%
+    });
+
+    // --- 归档今日预测（一天一档），供20个交易日后结算准确率 ---
+    const today = new Date().toISOString().slice(0,10);
+    if(!FCST_HIST.records.some(r=>r.date===today)){
+      FCST_HIST.records.push({ date:today, benchPrice:(LAST_IDX?LAST_IDX.sh:0),
+        list: top.map(r=>({code:r.code, name:r.name, price:r.price, pred:+r.pred.toFixed(3)})),
+        checked:false });
+      saveFcstHist();
+    }
+    checkFcstHist();
+    TABS.fcst.scored = top; TABS.fcst.time = new Date().toTimeString().slice(0,5);
+    TABS.fcst.universe = universe.length;
+    TABS.fcst.model  = pts.length>=30 ? {n:pts.length, r2:+r2.toFixed(3)} : {n:pts.length, r2:null};
+    saveTabs();
+    document.getElementById('modeTag').textContent='前瞻预测 Top20 · '+TABS.fcst.time;
+    renderFcst();
+    toast(`预测完成：${universe.length}只进入横截面 → 输出Top20` +
+      (r2!==null ? `（回归样本${pts.length}条，R²=${r2.toFixed(2)}）` : '（历史样本不足30条，暂只输出排名）'));
+    fetchIndices();
+  }catch(e){ toast('预测失败：'+e.message); }
+  document.getElementById('fcstRun').disabled = false;
+}
+document.getElementById('fcstRun').onclick = scanForecast;
+
+function renderFcst(){
+  const top = TABS.fcst.scored, m = TABS.fcst.model || {};
+  const body = document.getElementById('fcstBody');
+  if(!top.length){ body.innerHTML='尚未运行预测'; return; }
+  document.getElementById('fcstMeta').textContent = TABS.fcst.time ? (' · '+TABS.fcst.time) : '';
+  const fnames = {m:'动量',v:'量能',va:'估值',r:'风险',g:'成长'};
+  body.innerHTML = '<table><thead><tr><th style="text-align:left">预测排名</th><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th>现价</th><th>综合分</th><th>预测分位</th><th>预期20日超额</th><th>主驱动因子</th><th>买入/止损</th></tr></thead><tbody>' +
+  top.map((r,i)=>{
+    const plan = tradePlan(r);
+    const topF = Object.entries(r.f).sort((a,b)=>b[1]-a[1])[0];
+    const exp  = r.fExp===null ? '<span style="color:var(--dim)">—</span>'
+      : `<span class="${r.fExp>=0?'up':'down'}">${r.fExp>=0?'+':''}${r.fExp.toFixed(1)}%</span>`;
+    return `<tr${i===0?' class="top1"':''}>
+      <td style="text-align:left;color:var(--acc);font-weight:700">#${i+1}</td>
+      <td style="text-align:left"><span class="code">${r.code}</span></td>
+      <td style="text-align:left"><span class="name">${r.name}</span></td>
+      <td>${(+r.price).toFixed(2)}</td>
+      <td><b style="color:var(--acc)">${r.score}</b></td>
+      <td style="color:var(--dim)">Top ${Math.max(1,Math.round((i+1)/(TABS.fcst.universe||300)*100))}%</td>
+      <td>${exp}</td>
+      <td style="color:var(--dim)">${fnames[topF[0]]} ${topF[1]>=0?'+':''}${topF[1].toFixed(2)}</td>
+      <td style="color:var(--dim);font-size:11px">${plan?`买 ${plan.buy}　损 ${plan.stop}`:'—'}</td>
+    </tr>`;
+  }).join('') + '</tbody></table>' +
+  (m.r2!==null && m.r2!==undefined
+    ? `<div class="hint" style="margin-top:8px">回归样本 ${m.n} 条 · R²=${m.r2}${m.r2<0.05?'（拟合度偏低，预期收益仅供参考，排名为主）':''}</div>`
+    : `<div class="hint" style="margin-top:8px">历史样本不足30条：暂只输出排名。正常使用几天、历史榜单结算后自动输出预期超额收益。</div>`);
+  renderFcstAcc();
+}
+
+/* ============================================================
+   预测准确率追踪：每天归档预测榜 → 满20个交易日自动结算
+   指标：IC（预测分与实际超额收益的秩相关）、Top20平均超额、胜率
+   ============================================================ */
+const FCST_HIST = { records:[] };
+function saveFcstHist(){ try{ localStorage.setItem('ah_fcst', JSON.stringify(FCST_HIST)); }catch(e){} }
+function loadFcstHist(){ try{ const h=JSON.parse(localStorage.getItem('ah_fcst')||'null'); if(h) Object.assign(FCST_HIST,h); }catch(e){} }
+
+async function checkFcstHist(){
+  const unc = FCST_HIST.records.filter(r=>{
+    if(r.checked) return false;
+    return (Date.now()-new Date(r.date+'T00:00:00').getTime())/864e5 >= 28;  // 20个交易日≈28自然日
+  });
+  if(!unc.length){ renderFcstAcc(); return; }
+  toast('正在结算预测准确率…');
+  const allCodes = [...new Set(unc.flatMap(r=>r.list.map(s=>s.code)))];
+  const prices = {};
+  for(let i=0;i<allCodes.length;i+=10){
+    try{
+      const res = await jsonpRetry('/api/qt/ulist.np/get?fltt=2&invt=2&fields=f2,f12&secids='+allCodes.slice(i,i+10).map(secid).join(','), 3);
+      (res&&res.data&&res.data.diff||[]).forEach(d=>{ if(d.f2 && d.f2!=='-') prices[d.f12]=+d.f2; });
+    }catch(e){}
+    await new Promise(r=>setTimeout(r,400));
+  }
+  let benchNow = 0;
+  try{
+    const ir = await jsonpRetry('/api/qt/ulist.np/get?fltt=2&invt=2&fields=f2&secids=1.000001', 3);
+    const d = ir&&ir.data&&ir.data.diff&&ir.data.diff[0]; if(d) benchNow=+d.f2;
+  }catch(e){}
+  unc.forEach(rec=>{
+    const benchRet = rec.benchPrice>0 && benchNow>0 ? (benchNow/rec.benchPrice-1)*100 : 0;
+    const xs=[], ys=[]; let sumEx=0, hit=0, n=0;
+    rec.list.forEach(s=>{
+      const p = prices[s.code]; if(!p || !s.price) return;
+      const ex = (p/s.price-1)*100 - benchRet;
+      xs.push(s.pred); ys.push(ex);
+      sumEx += ex; if(ex>0) hit++; n++;
+    });
+    rec.ic      = n>=5 ? +spearman(xs,ys).toFixed(3) : null;   // 预测排名 vs 实际表现的一致性
+    rec.avgEx   = n ? +(sumEx/n).toFixed(2) : null;            // Top20平均超额收益%
+    rec.winRate = n ? +(hit/n*100).toFixed(1) : null;          // 跑赢基准比例
+    rec.n = n; rec.checked = true;
+  });
+  saveFcstHist(); renderFcstAcc();
+  toast('预测结算完成：新增 '+unc.length+' 期准确率判定');
+}
+
+function renderFcstAcc(){
+  const el = document.getElementById('fcstAcc'); if(!el) return;
+  const done = FCST_HIST.records.filter(r=>r.checked);
+  const pending = FCST_HIST.records.length - done.length;
+  if(!done.length){
+    el.innerHTML = '暂无已结算的预测记录（归档满20个交易日后自动结算）。当前待结算 <b style="color:var(--acc)">'+pending+'</b> 期。';
+    return;
+  }
+  const avg = a=>a.reduce((x,y)=>x+y,0)/a.length;
+  const ics = done.map(r=>r.ic).filter(x=>x!==null);
+  const avgIc = ics.length ? avg(ics) : 0;
+  const avgEx = avg(done.map(r=>r.avgEx));
+  const avgWin = avg(done.map(r=>+r.winRate));
+  el.innerHTML =
+    `<div style="font-family:var(--mono);font-size:13px;line-height:2.2;margin-bottom:10px">
+       已结算 <b style="color:var(--acc)">${done.length}</b> 期 ·
+       平均IC <b style="color:${avgIc>=0?'var(--up)':'var(--down)'}">${avgIc.toFixed(3)}</b> ·
+       Top20平均超额 <b style="color:${avgEx>=0?'var(--up)':'var(--down)'}">${avgEx>=0?'+':''}${avgEx.toFixed(2)}%</b> ·
+       胜率 <b style="color:var(--acc)">${avgWin.toFixed(1)}%</b>
+       <div class="hint">IC &gt; 0.03 预测有效，&gt; 0.05 良好；胜率 = 榜内跑赢上证指数的比例。IC 越高，排名越可信。</div>
+     </div>` +
+    '<table><thead><tr><th style="text-align:left">预测日期</th><th>IC</th><th>Top20平均超额</th><th>胜率</th><th>有效样本</th></tr></thead><tbody>' +
+    done.slice().reverse().map(r=>`<tr>
+       <td style="text-align:left" class="mono">${r.date}</td>
+       <td class="${r.ic>=0?'up':'down'}">${r.ic===null?'—':r.ic.toFixed(3)}</td>
+       <td class="${r.avgEx>=0?'up':'down'}">${r.avgEx>=0?'+':''}${r.avgEx}%</td>
+       <td>${r.winRate}%</td>
+       <td style="color:var(--dim)">${r.n}</td></tr>`).join('') +
+    '</tbody></table>';
+}
+
 
 
 async function fetchIndices(){
@@ -915,18 +1136,32 @@ function addToPool(code){
 /* ============================================================
    多因子打分内核（z-score 横截面标准化）
    ============================================================ */
-/* 截尾（winsorize）：把极端值压回 5%/95% 分位，防一只妖股污染整个横截面标准化 */
-function winsorize(arr, loQ=0.05, hiQ=0.95){
+/* 【升级1·去极值】MAD 中位数绝对偏差法：中位数与偏离度都不受极端值污染，
+   比分位数截尾和均值±3σ更鲁棒（对标聚宽因子预处理流水线） */
+function madClip(arr, k=3){
   const s = arr.slice().sort((a,b)=>a-b);
-  const q = p => s[Math.min(s.length-1, Math.max(0, Math.round(p*(s.length-1))))];
-  const lo = q(loQ), hi = q(hiQ);
+  const med = s[Math.floor((s.length-1)/2)];
+  const dev = s.map(x=>Math.abs(x-med)).sort((a,b)=>a-b);
+  const mad = (dev[Math.floor((dev.length-1)/2)] || 0) * 1.4826 || 1e-9;
+  const lo = med - k*mad, hi = med + k*mad;
   return arr.map(x=>Math.min(hi, Math.max(lo, x)));
 }
-function z(arr){ // 截尾后再标准化，返回 z 分数数组
-  arr = winsorize(arr);
+function z(arr){ // MAD去极值后再标准化，返回 z 分数数组
+  arr = madClip(arr);
   const m = arr.reduce((a,b)=>a+b,0)/arr.length;
   const sd = Math.sqrt(arr.map(x=>(x-m)**2).reduce((a,b)=>a+b,0)/arr.length) || 1;
   return arr.map(x=>(x-m)/sd);
+}
+/* 【升级2·中性化】因子 z 对 log(市值) 做横截面回归取残差，
+   挤掉"得分高只是因为盘子大/小"的伪阿尔法，留下个股纯特质暴露 */
+function neutralize(fz, caps){
+  const n = fz.length; if(n<3) return fz;
+  const x = caps.map(c=>Math.log10(Math.max(c,1)));
+  const mx = x.reduce((a,b)=>a+b,0)/n, mf = fz.reduce((a,b)=>a+b,0)/n;
+  let sxy=0, sxx=0;
+  for(let i=0;i<n;i++){ sxy += (x[i]-mx)*(fz[i]-mf); sxx += (x[i]-mx)*(x[i]-mx); }
+  const beta = sxx>1e-12 ? sxy/sxx : 0;
+  return fz.map((f,i)=>f - beta*(x[i]-mx));
 }
 const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
 
@@ -1031,9 +1266,11 @@ function score(){
   const gValid = gRaw.filter(x=>x!==null);
   const gMu = gValid.length ? gValid.reduce((a,b)=>a+b)/gValid.length : 0;
   const gSd = gValid.length ? Math.sqrt(gValid.map(x=>(x-gMu)**2).reduce((a,b)=>a+b)/gValid.length)||1 : 1;
-  const zG = gRaw.map(x=> x===null ? 0 : (x-gMu)/gSd);  // 缺失→中性0，不奖不罚
-  // --- 标准化 ---
-  const zM=z(fMomen), zV=z(fVol), zVa=z(fVal), zR=z(fRisk);
+  const zG = neutralize(gRaw.map(x=> x===null ? 0 : (x-gMu)/gSd), DATA.map(d=>(+d.f20)||1e8));  // 缺失→中性0 + 市值中性化
+  // --- 标准化 + 市值中性化 ---
+  const caps = DATA.map(d=>(+d.f20)||1e8);
+  const zM=neutralize(z(fMomen),caps), zV=neutralize(z(fVol),caps),
+        zVa=neutralize(z(fVal),caps), zR=neutralize(z(fRisk),caps);
   const guard = eventGuard();                      // 大事件防护系数
   const wRiskEff = W.risk*guard;
   const wGrowth = W.growth||0;
@@ -1260,6 +1497,74 @@ document.getElementById('hCash').onchange = e=>{ CASH=+e.target.value||0; saveHo
    历史追踪引擎：自动记录每期榜单 → 5日后自动结算命中率
    → 因子贡献度分析 → 自动权重优化建议
    ============================================================ */
+/* 【升级3+4·滚动IC动态调权 + 前瞻超额收益目标】
+   目标函数：榜单股票 5+ 个交易日前瞻收益 - 同期上证收益 = 超额收益（选股看的是相对强弱）
+   调权规则：每期榜单内做因子-超额收益的 Spearman 秩相关(IC)，取最近12期均值，
+            正IC因子加权、负IC因子减权，学习率0.5，单因子限幅5~55，归一化到100 */
+function spearman(x, y){
+  const n = x.length; if(n<5) return 0;
+  const rank = a=>{
+    const idx = a.map((v,i)=>[v,i]).sort((p,q)=>p[0]-q[0]);
+    const r = new Array(n); idx.forEach((p,j)=>r[p[1]]=j); return r;
+  };
+  const rx = rank(x), ry = rank(y), m = (n-1)/2;
+  let sxy=0, sxx=0, syy=0;
+  for(let i=0;i<n;i++){ const dx=rx[i]-m, dy=ry[i]-m; sxy+=dx*dy; sxx+=dx*dx; syy+=dy*dy; }
+  return (sxx>0 && syy>0) ? sxy/Math.sqrt(sxx*syy) : 0;
+}
+/* 近12期已结算榜单 → 各因子IC（因子值与超额收益的Spearman秩相关均值） */
+function computeIC(){
+  const settled = HISTORY.records.filter(r=>r.checked && r.scored.some(s=>s.nowRet!==undefined));
+  if(settled.length<3) return null;
+  const recs = settled.slice(-12);
+  const keys = ['m','v','va','r','g'];
+  const ic = {};
+  keys.forEach(fk=>{
+    const vals = [];
+    recs.forEach(r=>{
+      if(!r.benchNow || !r.benchPrice) return;
+      const benchRet = (r.benchNow/r.benchPrice-1)*100;
+      const xs=[], ys=[];
+      r.scored.forEach(s=>{
+        if(s.nowRet===undefined) return;
+        xs.push(s.f[fk]); ys.push(s.nowRet - benchRet);   // 目标=超额收益
+      });
+      if(xs.length>=5) vals.push(spearman(xs, ys));
+    });
+    ic[fk] = vals.length ? vals.reduce((a,b)=>a+b)/vals.length : 0;
+  });
+  return ic;
+}
+/* IC权重：带符号归一化，预测专用。负IC因子自动反向使用；IC整体太弱时返回null回退显示权重 */
+function icWeights(){
+  const ic = computeIC(); if(!ic) return null;
+  const sumAbs = ['m','v','va','r','g'].reduce((a,k)=>a+Math.abs(ic[k]),0);
+  if(sumAbs < 0.02) return null;
+  const w = {};
+  ['m','v','va','r','g'].forEach(k=>{ w[k] = ic[k]/sumAbs; });
+  return w;
+}
+function updateWeightsByIC(){
+  const ic = computeIC();
+  if(!ic) return null;
+  const keys = [['m','momen'],['v','vol'],['va','val'],['r','risk'],['g','growth']];
+  let changed = false;
+  keys.forEach(([fk, wk])=>{
+    const adj = clamp(W[wk]*(1 + 0.5*ic[fk]), 5, 55);
+    if(Math.abs(adj - W[wk]) > 0.5){ W[wk] = adj; changed = true; }
+  });
+  if(!changed) return ic;
+  const sum = (W.momen+W.vol+W.val+W.risk+W.growth)||1;
+  keys.forEach(([fk, wk])=>{ W[wk] = Math.round(W[wk]/sum*100); });
+  localStorage.setItem('ah_w', JSON.stringify(W));
+  ['wMomen','wVol','wVal','wRisk','wGrowth'].forEach(id=>{
+    const el = document.getElementById(id); if(!el) return;
+    const key = {wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth'}[id];
+    el.value = W[key]; document.getElementById(id+'V').textContent = W[key]+'%';
+  });
+  return ic;
+}
+
 async function checkHistory(){
   const today = new Date().toISOString().slice(0,10);
   if(HISTORY.lastCheck === today) return;
@@ -1311,6 +1616,13 @@ async function checkHistory(){
   saveHistory(); renderHistory();
   const settled = unc.length;
   toast(`历史结算完成：${settled} 期已判定，总命中率 ${overallHitRate()}%`);
+  // 滚动IC调权：结算出新数据后自动学习一次因子权重
+  const ic = updateWeightsByIC();
+  if(ic){
+    const txt = ['m','v','va','r','g'].map(k=>`${{m:'动量',v:'量能',va:'估值',r:'风险',g:'成长'}[k]}${ic[k]>=0?'+':''}${ic[k].toFixed(3)}`).join(' ');
+    toast('🧠 滚动IC调权完成（近12期IC：'+txt+'），权重已自适应更新');
+    score(); render();
+  }
 }
 
 function overallHitRate(){
@@ -2043,7 +2355,7 @@ migrateData();                                      // 先迁移旧数据，不�
 checkRemoteVersion();                               // 静默检查远端是否有新版本
 document.getElementById('appVerLabel').textContent = 'v'+APP_VERSION;
 
-loadTabs(); loadHistory();                              // 恢复缓存和历史数据库
+loadTabs(); loadHistory(); loadFcstHist();              // 恢复缓存、历史数据库和预测归档
 if(HISTORY.records.length) setTimeout(checkHistory, 3000); // 启动3秒后静默结算历史
 SCORED = TABS[activeTab].scored;                 // 先用缓存渲染首屏，避免白屏等待
 if(SCORED.length){

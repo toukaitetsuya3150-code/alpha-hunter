@@ -1,7 +1,7 @@
 {
-  "version": "3.5.1",
+  "version": "3.8.0",
   "minVersion": "3.0.0",
-  "changelog": "修复：掉出Top20卖出价=0的资金漏洞+历史坏账自动补记",
+  "changelog": "预测榜UI修复+每日预测归档+20日准确率结算+IC权重预测",
   "force": false,
   "updatedAt": "2026-09-11",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
