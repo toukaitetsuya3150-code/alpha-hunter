@@ -173,9 +173,11 @@
       <input type="range" id="wRisk" min="0" max="100" value="15"></div>
     <div class="factor"><div class="row"><span>成长因子（iFinD盈利预测）<sup style="color:var(--acc)">iFinD</sup></span><span class="w" id="wGrowthV">15%</span></div>
       <input type="range" id="wGrowth" min="0" max="100" value="15"></div>
+    <div class="factor"><div class="row"><span>资金因子（主力/超大单流向）</span><span class="w" id="wFlowV">12%</span></div>
+      <input type="range" id="wFlow" min="0" max="100" value="12"></div>
     <button class="btn" id="rescore">重新打分</button>
     <button class="btn ghost" id="trained">🧠 应用回测优化权重</button>
-    <div class="hint" id="trainedHint">基于近一年16只样本股、2896个交易日的因子IC回测训练（v3.5已修正量能方向：涨放加分/跌放减分）。</div>
+    <div class="hint" id="trainedHint">基于近一年16只样本股、2896个交易日的因子IC回测训练（v3.5修正量能方向；v3.9新增资金因子：主力+超大单净流入）。</div>
     <div class="hint" id="eventBanner" style="color:var(--warn)"></div>
 
     <h2>智能选股 / AUTO SCAN</h2>
@@ -433,7 +435,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '3.8.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '3.9.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -559,7 +561,7 @@ function recordHistory(){
     date: today, benchPrice: idx.sh, benchNow: null,
     scored: TABS.market.scored.slice(0,20).map(r=>({
       code:r.code, name:r.name, price:r.price, score:r.score,
-      f:{m:r.f.m||0, v:r.f.v||0, va:r.f.va||0, r:r.f.r||0, g:r.f.g||0}
+      f:{m:r.f.m||0, v:r.f.v||0, va:r.f.va||0, r:r.f.r||0, g:r.f.g||0, fl:r.f.fl||0}
     })),
     checked:false, holdDays:0, hitCount:0, totalCount:0,
     hitRate:null, avgReturn:null
@@ -624,9 +626,9 @@ bindScan('minLb','minLb',v=>v.toFixed(1));
 const IFIND = { meta: { date:'2026-09-07', report:'2026中报', src:'同花顺iFinD' }, data: {"601088":{"npFy1":597.2,"npYoy":13.0,"revYoy":19.3,"peg":null,"roe":6.7,"gross":35.5,"netM":18.8,"eps":1.34,"roic":4.9},"601899":{"npFy1":816.7,"npYoy":57.7,"revYoy":34.0,"peg":null,"roe":20.0,"gross":37.7,"netM":25.7,"eps":1.47,"roic":11.5},"002001":{"npFy1":81.7,"npYoy":20.7,"revYoy":18.7,"peg":null,"roe":11.9,"gross":44.2,"netM":30.7,"eps":1.3,"roic":9.8},"601318":{"npFy1":1495.7,"npYoy":11.0,"revYoy":5.4,"peg":null,"roe":9.1,"gross":null,"netM":18.7,"eps":5.3,"roic":null},"600585":{"npFy1":77.6,"npYoy":-4.4,"revYoy":-2.6,"peg":null,"roe":1.3,"gross":19.1,"netM":6.7,"eps":0.48,"roic":0.9},"000425":{"npFy1":79.7,"npYoy":21.3,"revYoy":13.3,"peg":null,"roe":6.3,"gross":22.1,"netM":6.5,"eps":0.35,"roic":4.1},"000938":{"npFy1":31.0,"npYoy":83.9,"revYoy":27.6,"peg":null,"roe":13.3,"gross":13.4,"netM":3.9,"eps":0.76,"roic":5.8},"002430":{"npFy1":11.6,"npYoy":22.0,"revYoy":13.0,"peg":null,"roe":5.6,"gross":21.0,"netM":7.1,"eps":0.58,"roic":3.6},"600900":{"npFy1":359.1,"npYoy":4.1,"revYoy":1.1,"peg":null,"roe":6.7,"gross":57.9,"netM":39.6,"eps":0.6,"roic":3.6},"601288":{"npFy1":3037.7,"npYoy":4.4,"revYoy":6.4,"peg":null,"roe":4.5,"gross":null,"netM":36.0,"eps":0.4,"roic":null},"000333":{"npFy1":469.0,"npYoy":6.7,"revYoy":6.6,"peg":null,"roe":12.1,"gross":25.3,"netM":10.2,"eps":3.52,"roic":7.9},"600030":{"npFy1":395.0,"npYoy":31.3,"revYoy":24.3,"peg":null,"roe":7.0,"gross":null,"netM":48.1,"eps":1.53,"roic":null},"600276":{"npFy1":93.3,"npYoy":21.0,"revYoy":11.7,"peg":null,"roe":7.1,"gross":86.3,"netM":28.9,"eps":0.68,"roic":6.0},"603063":{"npFy1":6.6,"npYoy":24.5,"revYoy":17.0,"peg":null,"roe":2.9,"gross":37.9,"netM":9.9,"eps":0.36,"roic":2.7},"002415":{"npFy1":173.4,"npYoy":22.1,"revYoy":10.0,"peg":null,"roe":9.4,"gross":50.0,"netM":19.5,"eps":0.86,"roic":9.0},"601012":{"npFy1":-20.9,"npYoy":67.4,"revYoy":1.5,"peg":null,"roe":-7.2,"gross":1.3,"netM":-14.2,"eps":-0.49,"roic":null}} };
 
 // ---- 因子权重（从滑杆读，可持久化）----
-const W = Object.assign({momen:30,vol:30,val:25,risk:15,growth:15}, JSON.parse(localStorage.getItem('ah_w') || '{}'));
-['wMomen','wVol','wVal','wRisk','wGrowth'].forEach(id=>{
-  const key = {wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth'}[id];
+const W = Object.assign({momen:30,vol:30,val:25,risk:15,growth:15,flow:12}, JSON.parse(localStorage.getItem('ah_w') || '{}'));
+['wMomen','wVol','wVal','wRisk','wGrowth','wFlow'].forEach(id=>{
+  const key = {wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth',wFlow:'flow'}[id];
   const el = document.getElementById(id);
   el.value = W[key];
   document.getElementById(id+'V').textContent = W[key]+'%';
@@ -703,7 +705,7 @@ function secid(code){
 }
 
 // ---- 行情拉取 ----
-const FIELDS = 'f2,f3,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f24,f115';
+const FIELDS = 'f2,f3,f8,f9,f10,f12,f14,f15,f16,f17,f18,f20,f21,f23,f24,f115,f62,f66';
 // f2价 f3涨幅% f8换手 f9PE f10量比 f12代码 f14名称 f15高 f16低 f17开 f18昨收 f20总市值 f21流通市值 f23PB f24六十日涨幅% f115_PE(TTM)
 async function fetchQuotes(){
   toast('行情刷新中…');
@@ -936,7 +938,7 @@ async function scanForecast(){
     // --- 预测分：IC权重合成（数据足够时），否则回退显示权重综合分 ---
     const icW = icWeights();
     const predOf = (f, score)=> icW
-      ? (icW.m*f.m + icW.v*f.v + icW.va*f.va + icW.r*f.r + icW.g*f.g)
+      ? (icW.m*f.m + icW.v*f.v + icW.va*f.va + icW.r*f.r + icW.g*f.g + icW.fl*(f.fl||0))
       : score;
 
     // --- 历史回归：预测分 → 20日超额收益（用近12期已结算榜单拟合） ---
@@ -990,7 +992,7 @@ function renderFcst(){
   const body = document.getElementById('fcstBody');
   if(!top.length){ body.innerHTML='尚未运行预测'; return; }
   document.getElementById('fcstMeta').textContent = TABS.fcst.time ? (' · '+TABS.fcst.time) : '';
-  const fnames = {m:'动量',v:'量能',va:'估值',r:'风险',g:'成长'};
+  const fnames = {m:'动量',v:'量能',va:'估值',r:'风险',g:'成长',fl:'资金'};
   body.innerHTML = '<table><thead><tr><th style="text-align:left">预测排名</th><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th>现价</th><th>综合分</th><th>预测分位</th><th>预期20日超额</th><th>主驱动因子</th><th>买入/止损</th></tr></thead><tbody>' +
   top.map((r,i)=>{
     const plan = tradePlan(r);
@@ -1175,7 +1177,7 @@ const clamp = (x,a,b)=>Math.max(a,Math.min(b,x));
    ============================================================ */
 // 修正版训练权重：量能因子已方向感知（涨放+/跌放-），负号反转作废；动量权重恢复
 // 旧版教训：volSign=-1 会把"放量启动"（如底部突破日）按最大权重反向扣分，与量价配合常识冲突
-const TRAINED = { momen:20, vol:40, val:20, risk:20, volSign:1 };
+const TRAINED = { momen:20, vol:40, val:20, risk:20, flow:12, volSign:1 };
 let volSign = +(localStorage.getItem('ah_volsign') || 1);  // v3.5 迁移已强制复位旧值
 
 // ---- 大事件日历：事件前5个交易日进入"防护模式"（风险因子权重×1.5）----
@@ -1201,9 +1203,9 @@ function eventGuard(){
   return 1;
 }
 document.getElementById('trained').onclick = ()=>{
-  ['momen','vol','val','risk'].forEach(k=>{ W[k]=TRAINED[k]; });
-  ['wMomen','wVol','wVal','wRisk'].forEach(id=>{
-    const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk'}[id];
+  ['momen','vol','val','risk','flow'].forEach(k=>{ W[k]=TRAINED[k]; });
+  ['wMomen','wVol','wVal','wRisk','wFlow'].forEach(id=>{
+    const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wFlow:'flow'}[id];
     document.getElementById(id).value=W[key];
     document.getElementById(id+'V').textContent=W[key]+'%';
   });
@@ -1211,7 +1213,7 @@ document.getElementById('trained').onclick = ()=>{
   localStorage.setItem('ah_w',JSON.stringify(W));
   localStorage.setItem('ah_volsign', volSign);
   score(); render();
-  toast('已应用修正版回测权重：量能40·动量20·估值20·风险20（量能方向感知）');
+  toast('已应用修正版回测权重：量能40·动量20·估值20·风险20·资金12（量能方向感知）');
 };
 
 function score(){
@@ -1255,6 +1257,12 @@ function score(){
     const cap = (+d.f20)||1e9;
     return -amp*(1.5-pos) + Math.log10(cap)/2;          // 收最低罚1.5倍振幅，收最高只罚0.5倍
   });
+  // --- 资金因子：主力净流入+超大单×1.5，按总市值归一（千分比）。与AKShare资金维度同源（东财f62/f66） ---
+  const fFlow = DATA.map(d=>{
+    const cap = (+d.f20)||1e8;
+    const m62 = (+d.f62)||0, m66 = (+d.f66)||0;      // 主力/超大单净流入（元，带符号）
+    return (m62 + 1.5*m66)/cap*1000;                  // 占市值千分比，截面可比
+  });
   // --- iFinD成长因子：预测净利增速为主、营收增速为辅；无数据的票给中性0 ---
   const gRaw = DATA.map(d=>{
     const f = IFIND.data[d.f12];
@@ -1271,12 +1279,14 @@ function score(){
   const caps = DATA.map(d=>(+d.f20)||1e8);
   const zM=neutralize(z(fMomen),caps), zV=neutralize(z(fVol),caps),
         zVa=neutralize(z(fVal),caps), zR=neutralize(z(fRisk),caps);
+  const zF=neutralize(z(fFlow),caps);
   const guard = eventGuard();                      // 大事件防护系数
   const wRiskEff = W.risk*guard;
   const wGrowth = W.growth||0;
-  const sumW = (W.momen+W.vol+W.val+wRiskEff+wGrowth)||1;
+  const wFlow = W.flow||12;
+  const sumW = (W.momen+W.vol+W.val+wRiskEff+wGrowth+wFlow)||1;
   SCORED = DATA.map((d,i)=>{
-    const raw = (W.momen*zM[i] + W.vol*volSign*zV[i] + W.val*zVa[i] + wRiskEff*zR[i] + wGrowth*zG[i])/sumW;
+    const raw = (W.momen*zM[i] + W.vol*volSign*zV[i] + W.val*zVa[i] + wRiskEff*zR[i] + wGrowth*zG[i] + wFlow*zF[i])/sumW;
     const s = clamp(Math.round(50 + raw*18), 0, 99);    // 映射到 0~99
     return {
       code:d.f12, name:d.f14, price:+d.f2, pct:+d.f3, pe:+d.f9||0,
@@ -1284,7 +1294,7 @@ function score(){
       hi:+d.f15||0, lo:+d.f16||0, pre:(+d.f18)||0,
       d60:(d.f24!==undefined && d.f24!=='-')?+d.f24:null,
       ytd:(d.f25!==undefined && d.f25!=='-')?+d.f25:null,
-      f:{m:zM[i],v:zV[i],va:zVa[i],r:zR[i],g:zG[i]}
+      f:{m:zM[i],v:zV[i],va:zVa[i],r:zR[i],g:zG[i],fl:zF[i]}
     };
   });
 }
@@ -1354,7 +1364,7 @@ function render(){
       <td>${r.cap.toFixed(0)}</td>
       <td><span class="scorebar ${barCls}"><i style="width:${r.score}%"></i></span><b style="color:${r.score>=70?'var(--acc)':(r.score>=50?'var(--warn)':'#666')}">${r.score}</b></td>
       <td><span class="tag ${cls}">${txt}</span>
-        <div class="factors-mini"><span>动<b>${fx(r.f.m)}</b></span><span>量<b>${fx(r.f.v)}</b></span><span>估<b>${fx(r.f.va)}</b></span><span>险<b>${fx(r.f.r)}</b></span>${IFIND.data[r.code]?`<span style="color:var(--acc)">成<b>${fx(r.f.g)}</b></span>`:''}</div></td>
+        <div class="factors-mini"><span>动<b>${fx(r.f.m)}</b></span><span>量<b>${fx(r.f.v)}</b></span><span>估<b>${fx(r.f.va)}</b></span><span>险<b>${fx(r.f.r)}</b></span><span>资<b>${fx(r.f.fl)}</b></span>${IFIND.data[r.code]?`<span style="color:var(--acc)">成<b>${fx(r.f.g)}</b></span>`:''}</div></td>
       <td>${(()=>{ const p=tradePlan(r); if(!p) return '<span class="flat">—</span>';
         return `<div class="factors-mini" style="line-height:1.9;text-align:left">
           <div>买 <b style="color:var(--acc)">${p.buy}</b>　损 <b style="color:var(--up)">${p.stop}</b></div>
@@ -1517,7 +1527,7 @@ function computeIC(){
   const settled = HISTORY.records.filter(r=>r.checked && r.scored.some(s=>s.nowRet!==undefined));
   if(settled.length<3) return null;
   const recs = settled.slice(-12);
-  const keys = ['m','v','va','r','g'];
+  const keys = ['m','v','va','r','g','fl'];
   const ic = {};
   keys.forEach(fk=>{
     const vals = [];
@@ -1538,28 +1548,28 @@ function computeIC(){
 /* IC权重：带符号归一化，预测专用。负IC因子自动反向使用；IC整体太弱时返回null回退显示权重 */
 function icWeights(){
   const ic = computeIC(); if(!ic) return null;
-  const sumAbs = ['m','v','va','r','g'].reduce((a,k)=>a+Math.abs(ic[k]),0);
+  const sumAbs = ['m','v','va','r','g','fl'].reduce((a,k)=>a+Math.abs(ic[k]),0);
   if(sumAbs < 0.02) return null;
   const w = {};
-  ['m','v','va','r','g'].forEach(k=>{ w[k] = ic[k]/sumAbs; });
+  ['m','v','va','r','g','fl'].forEach(k=>{ w[k] = ic[k]/sumAbs; });
   return w;
 }
 function updateWeightsByIC(){
   const ic = computeIC();
   if(!ic) return null;
-  const keys = [['m','momen'],['v','vol'],['va','val'],['r','risk'],['g','growth']];
+  const keys = [['m','momen'],['v','vol'],['va','val'],['r','risk'],['g','growth'],['fl','flow']];
   let changed = false;
   keys.forEach(([fk, wk])=>{
     const adj = clamp(W[wk]*(1 + 0.5*ic[fk]), 5, 55);
     if(Math.abs(adj - W[wk]) > 0.5){ W[wk] = adj; changed = true; }
   });
   if(!changed) return ic;
-  const sum = (W.momen+W.vol+W.val+W.risk+W.growth)||1;
+  const sum = (W.momen+W.vol+W.val+W.risk+W.growth+W.flow)||1;
   keys.forEach(([fk, wk])=>{ W[wk] = Math.round(W[wk]/sum*100); });
   localStorage.setItem('ah_w', JSON.stringify(W));
-  ['wMomen','wVol','wVal','wRisk','wGrowth'].forEach(id=>{
+  ['wMomen','wVol','wVal','wRisk','wGrowth','wFlow'].forEach(id=>{
     const el = document.getElementById(id); if(!el) return;
-    const key = {wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth'}[id];
+    const key = {wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth',wFlow:'flow'}[id];
     el.value = W[key]; document.getElementById(id+'V').textContent = W[key]+'%';
   });
   return ic;
@@ -1619,7 +1629,7 @@ async function checkHistory(){
   // 滚动IC调权：结算出新数据后自动学习一次因子权重
   const ic = updateWeightsByIC();
   if(ic){
-    const txt = ['m','v','va','r','g'].map(k=>`${{m:'动量',v:'量能',va:'估值',r:'风险',g:'成长'}[k]}${ic[k]>=0?'+':''}${ic[k].toFixed(3)}`).join(' ');
+    const txt = ['m','v','va','r','g','fl'].map(k=>`${{m:'动量',v:'量能',va:'估值',r:'风险',g:'成长',fl:'资金'}[k]}${ic[k]>=0?'+':''}${ic[k].toFixed(3)}`).join(' ');
     toast('🧠 滚动IC调权完成（近12期IC：'+txt+'），权重已自适应更新');
     score(); render();
   }
@@ -1690,8 +1700,8 @@ function applyAutoOptimize(){
   });
   if(changed){
     localStorage.setItem('ah_w',JSON.stringify(W)); localStorage.setItem('ah_volsign',volSign);
-    ['wMomen','wVol','wVal','wRisk','wGrowth'].forEach(id=>{
-      const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth'}[id];
+    ['wMomen','wVol','wVal','wRisk','wGrowth','wFlow'].forEach(id=>{
+      const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth',wFlow:'flow'}[id];
       const el=document.getElementById(id); if(el){ el.value=W[key]; document.getElementById(id+'V').textContent=W[key]+'%'; }
     });
     toast('自动优化完成：'+log.join('、')); score(); render();
@@ -2391,8 +2401,8 @@ document.getElementById('hImport').onclick = ()=>{
     localStorage.setItem('ah_volsign',volSign);
     toast('配置已恢复');
     refreshHoldings();
-    ['wMomen','wVol','wVal','wRisk','wGrowth'].forEach(id=>{
-      const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth'}[id];
+    ['wMomen','wVol','wVal','wRisk','wGrowth','wFlow'].forEach(id=>{
+      const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth',wFlow:'flow'}[id];
       const el=document.getElementById(id); if(el){ el.value=W[key]; document.getElementById(id+'V').textContent=W[key]+'%'; }
     });
   }catch(e){ toast('导入失败：文本格式错误或已损坏'); }

@@ -1,8 +1,7 @@
 {
-  "version": "3.8.0",
+  "version": "3.9.0",
   "minVersion": "3.0.0",
-  "changelog": "预测榜UI修复+每日预测归档+20日准确率结算+IC权重预测",
-  "force": false,
   "updatedAt": "2026-09-11",
+  "changelog": "新因子：主力/超大单资金流向（同源接入AKShare资金维度，东财f62/f66）",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
