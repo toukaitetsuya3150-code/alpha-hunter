@@ -230,6 +230,29 @@
       <button class="tab" data-tab="hold">我的持仓</button>
       <button class="tab" data-tab="hist">历史追踪</button>
       <button class="tab" data-tab="sim">模拟交易</button>
+      <button class="tab" data-tab="bt">因子回测</button>
+    </div>
+    <!-- ===== 因子回测视图（v4.3） ===== -->
+    <div id="viewBt" style="display:none">
+      <div class="sa-box">
+        <h3>因子历史回测 / BACKTEST <sup style="color:var(--acc);font-size:10px">K线口径</sup></h3>
+        <div style="font-family:var(--mono);font-size:12px;line-height:1.9;color:var(--dim)">
+          对样本股拉取一年<b>前复权日线</b>，按<b>周频滚动快照</b>（约50期×N只）计算因子 Spearman IC（因子值 vs 未来5日收益）。
+          覆盖可从K线复算的五个因子（动量60日/反转/量能/波动/流动性）；估值/资金/成长为快照因子，无历史截面数据，<b>不参与本回测</b>，其有效性由上线后的滚动IC学习验证。
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+          <select id="btUni" style="background:#000;border:1px solid var(--line);color:var(--txt);font-family:var(--mono);font-size:12px;padding:5px 8px">
+            <option value="pool">样本=自选池（16只）</option>
+            <option value="top100">样本=今日成交额Top100（更全面）</option>
+          </select>
+          <button class="btn" id="btRun" style="width:auto;padding:6px 16px;margin-top:0">运行回测</button>
+          <span id="btInfo" style="color:var(--dim);font-size:11px"></span>
+        </div>
+      </div>
+      <div class="sa-box" style="margin-top:14px">
+        <h3>回测结果 / RESULT</h3>
+        <div id="btOut" style="font-family:var(--mono);font-size:12px;line-height:1.9">点击「运行回测」开始。首次运行需逐个拉取K线（约1-2分钟），请留在本页。</div>
+      </div>
     </div>
     <!-- ===== 个股分析视图 ===== -->
     <div id="viewStock">
@@ -314,6 +337,18 @@
           <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
             <textarea class="sa-input" id="hImportBox" style="width:60%;min-height:60px;font-size:10.5px" placeholder="把之前保存的配置文本粘贴到这里…"></textarea>
             <button class="btn" id="hImport" style="width:auto;padding:6px 16px;margin-top:0">导入恢复</button>
+          </div>
+          <!-- 【v4.3·Gist 自动备份】学习数据（IC权重/历史榜单/预测归档/模拟盘）自动同步到用户自己的 GitHub Gist -->
+          <div style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
+            <div style="color:var(--dim);margin-bottom:8px">☁ Gist 自动备份：创建 fine-grained PAT（仅 gist 权限、7天过期、用完即撤），填入后每次归档自动云端备份，换设备一键恢复。</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+              <input class="sa-input" id="gistToken" type="password" style="width:280px;font-size:11px" placeholder="github_pat_...（仅 gist 权限）">
+              <label style="font-size:11px;color:var(--dim)"><input type="checkbox" id="gistAuto" checked> 自动备份</label>
+              <button class="btn" id="gistSave" style="width:auto;padding:6px 16px;margin-top:0">保存Token</button>
+              <button class="btn ghost" id="gistBackup" style="width:auto;padding:6px 16px;margin-top:0">立即备份</button>
+              <button class="btn ghost" id="gistRestore" style="width:auto;padding:6px 16px;margin-top:0">从Gist恢复</button>
+              <span id="gistStatus" style="color:var(--dim);font-size:11px"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -436,6 +471,13 @@
 </div>
 
 <div id="toast"></div>
+<!-- 【v4.3·扫描进度条】移动端友好：顶部真实进度条，扫描/回测全程可见，不再只靠一闪而过的toast -->
+<div id="scanBar" style="display:none;position:fixed;top:0;left:0;right:0;z-index:300;background:rgba(10,12,10,.92);border-bottom:1px solid var(--line);padding:6px 12px;font-family:var(--mono);font-size:11.5px">
+  <div id="scanBarTxt" style="color:var(--dim);margin-bottom:4px"></div>
+  <div style="height:4px;background:#1a1f1a;border-radius:2px;overflow:hidden">
+    <div id="scanBarFill" style="height:100%;width:0%;background:var(--acc);transition:width .3s"></div>
+  </div>
+</div>
 
 <script>
 /* ============================================================
@@ -445,7 +487,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '4.2.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '4.3.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -580,6 +622,7 @@ function saveHistory(){
     while(HISTORY.records.length > 60) HISTORY.records.shift();
     safeSet('ah_hist', HISTORY);
   }
+  if(typeof gistAutoSync==='function') gistAutoSync();   // 【v4.3】归档后自动云端备份（防抖30s）
 }
 function loadHistory(){ try{ const h=JSON.parse(localStorage.getItem('ah_hist')||'null'); if(h) Object.assign(HISTORY, h); }catch(e){} }
 
@@ -624,8 +667,10 @@ function switchTab(t){
   document.getElementById('viewHist').style.display  = (t==='hist')?'block':'none';
   document.getElementById('viewSim').style.display   = (t==='sim')?'block':'none';
   document.getElementById('viewFcst').style.display  = (t==='fcst')?'block':'none';
-  document.getElementById('viewTable').style.display = (t==='stock'||t==='hold'||t==='hist'||t==='sim'||t==='fcst')?'none':'block';
+  document.getElementById('viewBt').style.display    = (t==='bt')?'block':'none';
+  document.getElementById('viewTable').style.display = (t==='stock'||t==='hold'||t==='hist'||t==='sim'||t==='fcst'||t==='bt')?'none':'block';
   if(t==='stock') return;
+  if(t==='bt'){ document.getElementById('modeTag').textContent='因子历史回测'; return; }
   if(t==='hold'){ document.getElementById('modeTag').textContent='我的持仓'; refreshHoldings(); return; }
   if(t==='hist'){ document.getElementById('modeTag').textContent='历史追踪'; renderHistory(); return; }
   if(t==='fcst'){
@@ -733,6 +778,16 @@ async function jsonpRetry(path, tries){
   throw lastErr;
 }
 
+/* ---- 扫描进度条（v4.3）：pct=0~100，text=阶段说明；progEnd 隐藏 ---- */
+function prog(pct, text){
+  const bar=document.getElementById('scanBar');
+  if(!bar) return;
+  bar.style.display='block';
+  document.getElementById('scanBarFill').style.width=Math.min(100,Math.max(0,pct))+'%';
+  document.getElementById('scanBarTxt').textContent=text||'';
+}
+function progEnd(){ const bar=document.getElementById('scanBar'); if(bar) bar.style.display='none'; }
+
 // ---- 页签结果持久化：刷新页面秒开上次榜单 ----
 function saveTabs(){ safeSet('ah_tabs', TABS); }
 function loadTabs(){
@@ -787,10 +842,12 @@ async function scanMarket(){
     let all = [];
     for(let pn=1; pn<=3; pn++){
       toast(`⚡ 扫描中… 正在拉取第 ${pn}/3 页`);
+      prog(pn/5*100, `全市场扫描 · 拉取行情 ${pn}/3 页`);
       const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn='+pn+'&pz=100&po=1&np=1&fid=f6&fs='+fs+'&fields='+fld, 3);
       if(r && r.data && r.data.diff) all = all.concat(r.data.diff);
     }
     if(!all.length) throw new Error('empty');
+    prog(80, '全市场扫描 · 因子打分与排序…');
 
     // ---- 硬过滤（量化初筛纪律）----
     const before = all.length;
@@ -823,6 +880,7 @@ async function scanMarket(){
   }catch(e){
     toast('扫描失败：'+e.message+'。可能行情服务繁忙，建议①等1分钟重试 ②换WiFi网络 ③收盘后使用');
   }
+  progEnd();
   document.getElementById('scan').disabled = false;
 }
 document.getElementById('scan').onclick = scanMarket;
@@ -840,10 +898,12 @@ async function scanBottom(){
     let all = [];
     for(let pn=1; pn<=4; pn++){                      // 4页×100=400只，底部票成交额可能不在最前列，多扫一页
       toast(`🚀 扫描中… 第 ${pn}/4 页`);
+      prog(pn/6*100, `底部突破扫描 · 拉取行情 ${pn}/4 页`);
       const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn='+pn+'&pz=100&po=1&np=1&fid=f6&fs='+fs+'&fields='+fld, 3);
       if(r && r.data && r.data.diff) all = all.concat(r.data.diff);
     }
     if(!all.length) throw new Error('empty');
+    prog(75, '底部突破扫描 · 形态识别与打分…');
 
     const before = all.length;
     all = all.filter(d=>{
@@ -884,6 +944,7 @@ async function scanBottom(){
   }catch(e){
     toast('扫描失败：'+e.message+'。建议①等1分钟重试 ②换WiFi ③收盘后使用');
   }
+  progEnd();
   document.getElementById('scanBottom').disabled = false;
 }
 document.getElementById('scanBottom').onclick = scanBottom;
@@ -904,8 +965,11 @@ async function scanBoards(){
 
     // 2) 逐板块拉成分股（成交额Top15）
     let all = [];
+    let bi=0;
     for(const b of boards){
+      bi++;
       toast(`🔥 扫描板块：${b.f14}（60日${(+b.f24).toFixed(1)}%）`);
+      prog(bi/8*100, `主线板块扫描 · ${b.f14} ${bi}/${boards.length}`);
       const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn=1&pz=15&po=1&np=1&fid=f6&fs=b:'+b.f12+'&fields='+FIELDS+',f6,f25', 3);
       const list = (r&&r.data&&r.data.diff)||[];
       list.forEach(d=>{ d._board = b.f14; });
@@ -949,6 +1013,7 @@ async function scanBoards(){
   }catch(e){
     toast('扫描失败：'+e.message+'。建议①等1分钟重试 ②换WiFi ③收盘后使用');
   }
+  progEnd();
   document.getElementById('scanBoard').disabled = false;
 }
 document.getElementById('scanBoard').onclick = scanBoards;
@@ -967,10 +1032,12 @@ async function scanForecast(){
     let all = [];
     for(let pn=1; pn<=3; pn++){
       toast(`🔮 预测中… 拉取第 ${pn}/3 页`);
+      prog(pn/5*100, `前瞻预测 · 拉取行情 ${pn}/3 页`);
       const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn='+pn+'&pz=100&po=1&np=1&fid=f6&fs='+fs+'&fields='+FIELDS+',f6', 3);
       if(r && r.data && r.data.diff) all = all.concat(r.data.diff);
     }
     if(!all.length) throw new Error('empty');
+    prog(70, '前瞻预测 · 横截面打分…');
     // 基础过滤：剔除不可交易与极端状态（预测覆盖面比扫描宽，不卡PE/量比）
     all = all.filter(d=>{
       if(!d.f2 || d.f2==='-') return false;
@@ -1049,6 +1116,7 @@ async function scanForecast(){
       (r2!==null ? `（回归样本${pts.length}条，R²=${r2.toFixed(2)}）` : '（历史样本不足30条，暂只输出排名）'));
     fetchIndices();
   }catch(e){ toast('预测失败：'+e.message); }
+  progEnd();
   document.getElementById('fcstRun').disabled = false;
 }
 document.getElementById('fcstRun').onclick = scanForecast;
@@ -1090,7 +1158,7 @@ function renderFcst(){
    指标：IC（预测分与实际超额收益的秩相关）、Top20平均超额、胜率
    ============================================================ */
 const FCST_HIST = { records:[] };
-function saveFcstHist(){ while(FCST_HIST.records.length>60) FCST_HIST.records.shift(); safeSet('ah_fcst', FCST_HIST); }
+function saveFcstHist(){ while(FCST_HIST.records.length>60) FCST_HIST.records.shift(); safeSet('ah_fcst', FCST_HIST); if(typeof gistAutoSync==='function') gistAutoSync(); }
 function loadFcstHist(){ try{ const h=JSON.parse(localStorage.getItem('ah_fcst')||'null'); if(h) Object.assign(FCST_HIST,h); }catch(e){} }
 
 async function checkFcstHist(){
@@ -1354,8 +1422,13 @@ document.getElementById('trained').onclick = ()=>{
   toast('已应用修正版回测权重：量能40·动量20·估值20·风险20·资金12（量能方向感知）');
 };
 
-function score(){
-  if(!DATA.length){ SCORED=[]; return; }
+/* 【v4.3·并发安全改造】score 拆为纯函数 computeScores(data, guard)：不读不写全局，
+   refreshHoldings 等并发场景直接调用它，不再"保存-篡改-恢复"全局 DATA/SCORED。
+   旧入口 score() = 用当前 DATA 跑一遍并写入 SCORED，全部旧调用方行为不变。 */
+function score(){ SCORED = computeScores(DATA, eventGuard()); }
+function computeScores(data, guard){
+  if(!data.length) return [];
+  const DATA = data;   // 函数体内沿用原变量名，计算逻辑零改动
   // --- 原始因子 ---
   // 动量：日内动量(60%) + 中期趋势(40%)。中期项奖励60日温和上行、惩罚过热与阴跌
   const fMomen = DATA.map(d=>{
@@ -1441,14 +1514,13 @@ function score(){
         zVa=indN(neutralize(z(fVal),caps)), zR=indN(neutralize(z(fRisk),caps));
   const zF=indN(neutralize(z(fFlow),caps));
   const zRev=indN(neutralize(z(fRev),caps)), zLiq=indN(neutralize(z(fLiq),caps));
-  const guard = eventGuard();                      // 大事件防护系数
-  const wRiskEff = W.risk*guard;
+  const wRiskEff = W.risk*guard;                   // guard 由调用方传入（事件防护系数）
   const wGrowth = W.growth||0;
   const wFlow = W.flow||12;
   const wRev = W.rev||10;
   const wLiq = W.liq||8;
   const sumW = (W.momen+W.vol+W.val+wRiskEff+wGrowth+wFlow+wRev+wLiq)||1;
-  SCORED = DATA.map((d,i)=>{
+  return DATA.map((d,i)=>{
     const raw = (W.momen*zM[i] + W.vol*volSign*zV[i] + W.val*zVa[i] + wRiskEff*zR[i] + wGrowth*zG[i] + wFlow*zF[i] + wRev*zRev[i] + wLiq*zLiq[i])/sumW;
     const s = clamp(Math.round(50 + raw*18), 0, 99);    // 映射到 0~99
     return {
@@ -1576,11 +1648,9 @@ async function refreshHoldings(){
     const codes = [...new Set(POOL.concat(HOLD.map(h=>h.code)))];
     const ids = codes.map(secid).join(',');
     const res = await jsonpRetry('/api/qt/ulist.np/get?fltt=2&invt=2&fields='+FIELDS+'&secids='+ids, 3);
-    const savedD=DATA, savedS=SCORED;
-    DATA = (res&&res.data&&res.data.diff?res.data.diff:[]).filter(d=>d.f2&&d.f2!=='-');
-    score();
-    const byCode = {}; SCORED.forEach(r=>byCode[r.code]=r);
-    DATA=savedD; SCORED=savedS;                       // 恢复现场，不污染其他页签
+    const fresh = (res&&res.data&&res.data.diff?res.data.diff:[]).filter(d=>d.f2&&d.f2!=='-');
+    const scored = computeScores(fresh, eventGuard());   // 纯函数，不碰全局，竞态窗口消除
+    const byCode = {}; scored.forEach(r=>byCode[r.code]=r);
     renderHold(byCode);
     toast('持仓诊断完成 · '+new Date().toTimeString().slice(0,5));
   }catch(e){ toast('行情获取失败：'+e.message); }
@@ -2666,6 +2736,199 @@ document.getElementById('hImport').onclick = ()=>{
     });
   }catch(e){ toast('导入失败：文本格式错误或已损坏'); }
 };
+
+/* ============================================================
+   【v4.3·Gist 自动备份】学习数据云端双保险
+   PAT 仅存本机 localStorage，只带 gist 权限；每次归档/结算后 30s 防抖自动同步。
+   ============================================================ */
+const GIST = {
+  get token(){ return localStorage.getItem('ah_gist_token')||''; },
+  get id(){ return localStorage.getItem('ah_gist_id')||''; },
+  set id(v){ v ? localStorage.setItem('ah_gist_id',v) : localStorage.removeItem('ah_gist_id'); },
+  status(t){ const el=document.getElementById('gistStatus'); if(el) el.textContent=t; }
+};
+function gistPayload(){
+  return { v:1, date: todayCN(), device:navigator.userAgent.slice(0,60),
+    w:W, volSign, history:HISTORY, fcst:FCST_HIST, sim:SIM, pool:POOL };
+}
+async function gistPush(){
+  if(!GIST.token){ GIST.status('未配置Token'); return false; }
+  GIST.status('备份中…');
+  try{
+    const body = JSON.stringify({
+      description:'阿尔法猎手学习数据备份 '+todayCN(),
+      public:false,
+      files:{'alpha-hunter-backup.json':{content:JSON.stringify(gistPayload())}}
+    });
+    let r;
+    if(GIST.id){
+      r = await fetch('https://api.github.com/gists/'+GIST.id, {method:'PATCH', headers:{'Authorization':'Bearer '+GIST.token,'Content-Type':'application/json'}, body});
+    }else{
+      r = await fetch('https://api.github.com/gists', {method:'POST', headers:{'Authorization':'Bearer '+GIST.token,'Content-Type':'application/json'}, body});
+    }
+    if(r.status===401||r.status===403) throw new Error('Token无效或权限不足（需gist权限）');
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    GIST.id = j.id;
+    GIST.status('✓ 已备份 '+todayCN()+' '+(j.updated_at||'').slice(11,16));
+    return true;
+  }catch(e){ GIST.status('✗ '+e.message); toast('Gist备份失败：'+e.message); return false; }
+}
+async function gistPull(){
+  if(!GIST.token){ toast('请先保存 Token'); return; }
+  if(!GIST.id){ toast('本机没有 Gist 记录，请先做一次备份'); return; }
+  GIST.status('恢复中…');
+  try{
+    const r = await fetch('https://api.github.com/gists/'+GIST.id, {headers:{'Authorization':'Bearer '+GIST.token}});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const j = await r.json();
+    const f = j.files && j.files['alpha-hunter-backup.json'];
+    if(!f) throw new Error('Gist 里没有备份文件');
+    const content = f.truncated ? await (await fetch(f.raw_url)).text() : f.content;
+    const cfg = JSON.parse(content);
+    if(cfg.w) Object.keys(cfg.w).forEach(k=>W[k]=cfg.w[k]);
+    if(cfg.volSign!==undefined) volSign=cfg.volSign;
+    if(cfg.history) Object.assign(HISTORY,cfg.history);
+    if(cfg.fcst) Object.assign(FCST_HIST,cfg.fcst);
+    if(cfg.sim) Object.assign(SIM,cfg.sim);
+    if(cfg.pool) { POOL=cfg.pool; localStorage.setItem('ah_pool',JSON.stringify(POOL)); }
+    saveHold(); saveTabs(); saveHistory(); saveFcstHist(); saveSim();
+    localStorage.setItem('ah_w',JSON.stringify(W)); localStorage.setItem('ah_volsign',volSign);
+    ['wMomen','wVol','wVal','wRisk','wGrowth','wFlow','wRev','wLiq'].forEach(id=>{
+      const key={wMomen:'momen',wVol:'vol',wVal:'val',wRisk:'risk',wGrowth:'growth',wFlow:'flow',wRev:'rev',wLiq:'liq'}[id];
+      const el=document.getElementById(id); if(el){ el.value=W[key]; document.getElementById(id+'V').textContent=W[key]+'%'; }
+    });
+    GIST.status('✓ 已恢复 '+cfg.date);
+    toast('已从 Gist 恢复 '+cfg.date+' 的备份');
+  }catch(e){ GIST.status('✗ '+e.message); toast('Gist恢复失败：'+e.message); }
+}
+let gistTimer = null;
+function gistAutoSync(){   // 防抖30s，避免结算连发时反复打 API
+  if(!GIST.token || !document.getElementById('gistAuto')?.checked) return;
+  clearTimeout(gistTimer);
+  gistTimer = setTimeout(gistPush, 30000);
+}
+document.getElementById('gistSave').onclick = ()=>{
+  const t = document.getElementById('gistToken').value.trim();
+  if(!t){ localStorage.removeItem('ah_gist_token'); GIST.id=''; GIST.status('已清除'); return; }
+  localStorage.setItem('ah_gist_token', t);
+  GIST.status('Token 已保存（仅存本机）');
+  gistPush();
+};
+document.getElementById('gistBackup').onclick = gistPush;
+document.getElementById('gistRestore').onclick = gistPull;
+if(GIST.token){ document.getElementById('gistToken').value = GIST.token; GIST.status('Token 已载入，自动备份开启'); }
+
+/* ============================================================
+   【v4.3·因子历史回测】样本股一年 qfq 日线 → 周频滚动快照 →
+   五因子 Spearman IC / ICIR / 正IC占比。补齐"回测样本薄弱"短板：
+   这是真实历史样本外验证，而非16只自选股的同期拟合。
+   ============================================================ */
+const BT_FAC = {
+  m:   {name:'动量60日', f:(x)=>x.mom60},
+  rev: {name:'反转',     f:(x)=>x.rev},
+  v:   {name:'量能',     f:(x)=>x.vol},
+  r:   {name:'波动',     f:(x)=>-x.vol20},   // 低波动因子：波动取负
+  liq: {name:'流动性',   f:(x)=>x.liq},
+};
+async function runBacktest(){
+  const out = document.getElementById('btOut');
+  const btn = document.getElementById('btRun');
+  btn.disabled = true;
+  out.innerHTML = '准备样本…';
+  try{
+    // 1) 确定样本
+    let codes;
+    if(document.getElementById('btUni').value==='top100'){
+      prog(2, '回测 · 拉取成交额Top100样本');
+      const r = await jsonpRetry('/api/qt/clist/get?fltt=2&invt=2&pn=1&pz=100&po=1&np=1&fid=f6&fs=m:1+t:2,m:1+t:23,m:0+t:6,m:0+t:80&fields=f12,f14', 3);
+      codes = ((r&&r.data&&r.data.diff)||[]).map(d=>d.f12);
+    }else{
+      codes = POOL.slice();
+    }
+    codes = [...new Set(codes)].filter(c=>/^\d{6}$/.test(c));
+    if(codes.length<8) throw new Error('样本不足8只，无法做截面IC');
+
+    // 2) 逐个拉前复权日线（复用 fetchKline），串行+限速防封
+    const series = {};
+    let ok = 0;
+    for(let i=0;i<codes.length;i++){
+      prog(5+i/codes.length*70, `回测 · 拉取K线 ${i+1}/${codes.length}（${codes[i]}）`);
+      try{
+        const K = await fetchKline(secid(codes[i]), codes[i]);
+        if(K && K.length>=70) { series[codes[i]]=K; ok++; }
+      }catch(e){/* 单票失败跳过 */}
+      await new Promise(r=>setTimeout(r,150));
+    }
+    if(ok<8) throw new Error('有效K线样本不足8只（'+ok+'/'+codes.length+'）');
+
+    // 3) 周频滚动快照：t 从 60 到 len-6，步长5；fwd=未来5日收益
+    prog(78, '回测 · 计算滚动快照因子…');
+    const snaps = [];
+    const minLen = Math.min(...Object.values(series).map(K=>K.length));
+    for(let t=60; t<minLen-6; t+=5){
+      const rows = [];
+      Object.entries(series).forEach(([code,K])=>{
+        if(t>=K.length-6) return;
+        const c = K.map(b=>b.c), v = K.map(b=>b.v);
+        const mom60 = (c[t]/c[t-60]-1)*100;
+        const pct   = (c[t]/c[t-1]-1)*100;
+        const vbase = v.slice(t-5,t).reduce((a,b)=>a+b,0)/5 || 1;
+        const lb    = v[t]/vbase;
+        // 与实盘引擎同锚点：量能理想点 + 反转理想点
+        const vol = (100 - Math.abs(lb-2.0)*15 - Math.max(0,lb-5)*8)* (pct>0.3?1:(pct<-0.3?-1:0.3)) /10;
+        let rev = 100 - Math.abs(pct-(-3))*13 - Math.max(0,-pct-8)*10 - Math.max(0,pct-1)*8;
+        rev -= Math.max(0,mom60-35)*0.5 + Math.max(0,-mom60-35)*0.8;
+        let mu=0, sd=0; const rets=[];
+        for(let k=t-19;k<=t;k++) rets.push((c[k]/c[k-1]-1)*100);
+        mu = rets.reduce((a,b)=>a+b,0)/rets.length;
+        sd = Math.sqrt(rets.reduce((a,b)=>a+(b-mu)*(b-mu),0)/rets.length);
+        rows.push({ mom60, rev:rev/10, vol, vol20:sd, liq:Math.log10(Math.max(v[t]*c[t],1)),
+                    fwd:(c[t+5]/c[t]-1)*100 });
+      });
+      if(rows.length>=10) snaps.push(rows);
+    }
+    if(snaps.length<5) throw new Error('滚动快照不足5期（样本K线太短）');
+
+    // 4) 每期截面 Spearman IC → 汇总 mean/std/ICIR/正占比
+    prog(92, '回测 · 汇总 IC 统计…');
+    const res = {};
+    Object.keys(BT_FAC).forEach(k=>{ res[k]={ics:[]}; });
+    snaps.forEach(rows=>{
+      const fwd = rows.map(x=>x.fwd);
+      Object.entries(BT_FAC).forEach(([k,cfg])=>{
+        res[k].ics.push(spearman(rows.map(cfg.f), fwd));
+      });
+    });
+    const N = snaps.length, M = snaps.reduce((a,r)=>a+r.length,0);
+    let html = `<div style="color:var(--dim);margin-bottom:8px">样本 ${ok} 只 × ${N} 个周频快照 ≈ ${M} 个股票-期观测 · 前复权 · 未来5日收益 · Spearman 秩相关</div>`;
+    html += '<table style="width:100%;border-collapse:collapse"><tr style="color:var(--dim)"><td style="padding:6px 8px">因子</td><td>平均IC</td><td>ICIR</td><td>正IC占比</td><td>解读</td></tr>';
+    Object.entries(BT_FAC).forEach(([k,cfg])=>{
+      const ics = res[k].ics;
+      const mean = ics.reduce((a,b)=>a+b,0)/N;
+      const sd = Math.sqrt(ics.reduce((a,b)=>a+(b-mean)*(b-mean),0)/N)||1e-9;
+      const icir = mean/sd;
+      const pos = ics.filter(x=>x>0).length/N*100;
+      const verdict = mean>0.03?'有效因子':(mean>0.01?'弱有效':(mean<-0.01?'反向有效':'无明显规律'));
+      const cls = mean>=0?'var(--up)':'var(--down)';
+      html += `<tr style="border-top:1px solid #1c1c1c"><td style="padding:6px 8px"><b>${cfg.name}</b></td>
+        <td style="color:${cls}">${mean>=0?'+':''}${mean.toFixed(3)}</td>
+        <td>${icir.toFixed(2)}</td><td>${pos.toFixed(0)}%</td>
+        <td style="color:var(--dim)">${verdict}</td></tr>`;
+    });
+    html += '</table><div class="hint" style="margin-top:8px">ICIR = 平均IC/标准差（&gt;0.5 稳定）；|IC|&lt;0.01 的因子在实盘权重中应交给 IC 学习自动压缩。本回测为历史样本外验证，与"近一年16只训练"互为印证。</div>';
+    out.innerHTML = html;
+    progEnd();
+    toast('回测完成：'+N+'期 × '+ok+'只样本');
+  }catch(e){
+    progEnd();
+    out.innerHTML = '<span style="color:var(--up)">回测失败：'+e.message+'</span>';
+    toast('回测失败：'+e.message);
+  }
+  btn.disabled = false;
+}
+document.getElementById('btRun').onclick = runBacktest;
+
 </script>
 </body>
 </html>

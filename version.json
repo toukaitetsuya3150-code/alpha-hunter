@@ -1,7 +1,7 @@
 {
-  "version": "4.2.0",
+  "version": "4.3.0",
   "minVersion": "3.0.0",
   "updatedAt": "2026-09-14",
-  "changelog": "行业中性化（f100行业组内去均值，八因子全接入）+ 持仓行业集中度40%红线提示",
+  "changelog": "四项优化：因子回测扩全市场样本（新增因子回测页签，历史IC/ICIR检验）、Gist自动备份（持仓/预测历史自动同步）、refreshHoldings并发安全（score纯函数化）、移动端顶部扫描进度条",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
