@@ -1,7 +1,7 @@
 {
-  "version": "4.0.0",
+  "version": "4.2.0",
   "minVersion": "3.0.0",
   "updatedAt": "2026-09-14",
-  "changelog": "统计可信度大修：分板涨跌停阈值(10/20/30cm)、前复权结算、全横截面IC、权重快照回归、UTC日期修复、基准缺失不结算、调权平滑、模拟盘费用、合规文案",
+  "changelog": "行业中性化（f100行业组内去均值，八因子全接入）+ 持仓行业集中度40%红线提示",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
