@@ -491,7 +491,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '4.4.1';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '4.4.2';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -1119,7 +1119,7 @@ async function scanForecast(){
     toast(`预测完成：${universe.length}只进入横截面 → 输出Top20` +
       (r2!==null ? `（回归样本${pts.length}条，R²=${r2.toFixed(2)}）` : '（历史样本不足30条，暂只输出排名）'));
     fetchIndices();
-  }catch(e){ toast('预测失败：'+e.message); }
+  }catch(e){ toast('预测失败[v'+APP_VERSION+']：'+e.message); }
   progEnd();
   document.getElementById('fcstRun').disabled = false;
 }
@@ -1782,7 +1782,7 @@ function computeIC(){
         if(!r.benchNow || !r.benchPrice) return;
         const benchRet = (r.benchNow/r.benchPrice-1)*100;
         const xs=[], ys=[];
-        r.xs.forEach(s=>{ if(s.ret===undefined) return; xs.push(s.f[fk]); ys.push(s.ret - benchRet); });
+        r.xs.forEach(s=>{ if(s.ret===undefined || !s.f) return; xs.push(s.f[fk]); ys.push(s.ret - benchRet); });
         if(xs.length>=20) vals.push(spearman(xs, ys));
       });
       ic[fk] = vals.length ? vals.reduce((a,b)=>a+b)/vals.length : 0;
@@ -1800,7 +1800,7 @@ function computeIC(){
       const benchRet = (r.benchNow/r.benchPrice-1)*100;
       const xs=[], ys=[];
       r.scored.forEach(s=>{
-        if(s.nowRet===undefined) return;
+        if(s.nowRet===undefined || !s.f) return;
         xs.push(s.f[fk]); ys.push(s.nowRet - benchRet);   // 目标=超额收益
       });
       if(xs.length>=5) vals.push(spearman(xs, ys));
@@ -1972,7 +1972,7 @@ function factorAnalysis(){
       const hit = s.nowRet > benchRet;
       Object.keys(mapK).forEach(k=>{
         const key = mapK[k];
-        bins[key].push({z: s.f[k]||0, hit, ret: s.nowRet});
+        bins[key].push({z: (s.f? s.f[k] : 0)||0, hit, ret: s.nowRet});
       });
     });
   });
