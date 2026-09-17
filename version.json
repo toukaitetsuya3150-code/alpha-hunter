@@ -1,7 +1,7 @@
 {
-  "version": "4.4.0",
+  "version": "4.4.1",
   "minVersion": "3.0.0",
   "updatedAt": "2026-09-14",
-  "changelog": "模拟交易接入技术分析：stock-tech-analysis 技能口径 12 项指标多空投票（均线/MACD/RSI/布林/KDJ/CCI/威廉R/ADX·DMI/ROC/MFI/OBV/TRIX），买入过滤看空票、持仓强空自动卖出，持仓表新增技术列，可开关",
+  "changelog": "热修复：8月v3.x时代历史归档（scored行无因子对象f）本周结算后进入近12期 → 预测回归histPredOf读f.m崩溃\"预测失败\"。载入历史后统一补齐f字段+调用点防护",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
