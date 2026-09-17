@@ -491,7 +491,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '4.4.2';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '4.4.3';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -1077,9 +1077,9 @@ async function scanForecast(){
     HISTORY.records.filter(r=>r.checked && r.benchNow && r.benchPrice).slice(-12).forEach(r=>{
       const bRet = (r.benchNow/r.benchPrice-1)*100;
       if(r.xs && r.xs.some(s=>s.ret!==undefined)){
-        r.xs.forEach(s=>{ if(s.ret!==undefined && s.f) pts.push([histPredOf(s.f, r), s.ret-bRet]); });
+        r.xs.forEach(s=>{ if(s.ret!==undefined && s.f) pts.push([histPredOf(s, r), s.ret-bRet]); });
       }else{
-        (r.scored||[]).forEach(s=>{ if(s.nowRet!==undefined && s.f) pts.push([histPredOf(s.f, r), s.nowRet-bRet]); });
+        (r.scored||[]).forEach(s=>{ if(s.nowRet!==undefined && s.f) pts.push([histPredOf(s, r), s.nowRet-bRet]); });
       }
     });
     let alpha=null, beta=null, r2=null;
@@ -1130,7 +1130,7 @@ function renderFcst(){
   const body = document.getElementById('fcstBody');
   if(!top.length){ body.innerHTML='尚未运行预测'; return; }
   document.getElementById('fcstMeta').textContent = TABS.fcst.time ? (' · '+TABS.fcst.time) : '';
-  const fnames = {m:'动量',v:'量能',va:'估值',r:'风险',g:'成长',fl:'资金'};
+  const fnames = {m:'动量',v:'量能',va:'估值',r:'风险',g:'成长',fl:'资金',rev:'反转',liq:'流动性'};
   body.innerHTML = '<table><thead><tr><th style="text-align:left">预测排名</th><th style="text-align:left">代码</th><th style="text-align:left">名称</th><th>现价</th><th>综合分</th><th>预测分位</th><th>预期20日超额</th><th>主驱动因子</th><th>买入/止损</th></tr></thead><tbody>' +
   top.map((r,i)=>{
     const plan = tradePlan(r);
@@ -2813,7 +2813,9 @@ Object.values(TABS).forEach(tab=>((tab&&tab.scored)||[]).forEach(r=>{
   if(!r.f) r.f={};
   ['m','v','va','r','fl','rev','liq','g'].forEach(k=>{ if(typeof r.f[k]!=='number'||!isFinite(r.f[k])) r.f[k]=0; });
 }));
-// 【v4.4.1】历史归档里 v3.x 旧记录的 xs/scored 行缺 f 对象 → scanForecast 回归 histPredOf 读 f.m 崩溃（"预测失败: Cannot read properties of undefined (reading 'm')"）。补齐
+// 【v4.4.3·修复回归崩溃】histPredOf 形参是整行 s（内部读 s.f.m/s.score），但 v4.0 起调用点误传 s.f，
+// 函数体里变成 (s.f).f.m → undefined 读 'm'，只要存在已结算历史记录，运行预测必崩（"预测失败: ...reading 'm'"）。
+// 已将两处调用点改回 histPredOf(s, r)。v4.4.1 的 f 补齐防护继续保留（双保险）。
 (HISTORY.records||[]).forEach(rec=>{
   [(rec.xs||[]), (rec.scored||[])].forEach(list=>list.forEach(s=>{
     if(!s.f) s.f={};

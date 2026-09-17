@@ -1,7 +1,7 @@
 {
-  "version": "4.4.2",
+  "version": "4.4.3",
   "minVersion": "3.0.0",
-  "updatedAt": "2026-09-14",
-  "changelog": "热修复续：旧历史记录缺f因子的剩余路径全部加固（factorAnalysis/computeIC），预测失败toast带版本号便于确认是否加载新版",
+  "updatedAt": "2026-09-17",
+  "changelog": "修复运行预测必崩bug：历史回归histPredOf调用点误传s.f（函数体读s.f.m），只要存在已结算历史记录预测必失败；附带因子中文名映射补rev/liq",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
