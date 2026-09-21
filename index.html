@@ -405,7 +405,7 @@
           <span id="simStatus" style="font-family:var(--mono);font-size:12px;color:var(--warn)">已暂停</span>
           <button class="btn" id="simReset" style="width:auto;padding:4px 12px;margin-top:0;font-size:11px">重置</button>
         </div>
-        <div class="hint" style="margin-top:8px">初始虚拟资金 ¥50,000，单票上限30%，现金≥15%，评分≥70且技术面不做空才买入；评分&lt;50、破止损、掉出Top20或技术面强空（看空≥8/12）卖出</div>
+        <div class="hint" style="margin-top:8px">初始虚拟资金 ¥50,000，单票上限30%，现金≥15%；买入源=前瞻预测Top10（按预测分排名，需当日先点"运行预测"），技术面不做空才买；持仓满20个交易日、破止损或技术面强空（看空≥8/12）卖出</div>
       </div>
       <div class="sa-box" style="margin-top:14px">
         <h3>组合全景 / SIM PORTFOLIO</h3>
@@ -463,7 +463,7 @@
       智能选股流水线：沪深A股成交额前300 → <code>硬过滤</code>（剔除ST/停牌/亏损/PE超限/市值过低/量比不足/涨停追高/暴跌接刀，涨停阈值按 10/20/30cm 分板）→ z-score 因子合成 → Top20。<br>
       回测训练（近一年，16只样本股×约180个交易日≈2890个股票-日观测）：A股短周期呈反转效应——<code>量能反向</code>（缩量回踩优于放量追高）、<code>动量无效</code>、<code>低波动占优</code>；优化组合 IC=+0.070（t=3.60，日胜率63%）。样本期短且为自选池，结论仅作先验权重参考；上线后以滚动IC（全横截面 Spearman 秩相关）自适应调权为准，点击左侧「🧠 应用回测优化权重」一键载入。<br>
       大事件日历（FOMC等）前7天自动进入<code>防护模式</code>：风险因子权重×1.5；
-      市场状态护栏（v4.1）：上证收盘 vs 20日线判定强/震荡/弱势，弱势市场模拟盘买入门槛 70→75、现金纪律 15%→25%。<br>
+      市场状态护栏（v4.1/v4.5）：上证收盘 vs 20日线判定强/震荡/弱势，弱势市场模拟盘收紧买入（现金纪律 15%→25%）；v4.5 起模拟盘买入源为前瞻预测Top10（按预测分排名），持仓满20个交易日卖出。<br>
       底部突破引擎：<code>基本面</code>（PE 5-40 + 市值≥100亿）× <code>底部震荡</code>（60日涨幅-15%~+8% 且年内涨幅&lt;20%）× <code>放量启动</code>（量比≥1.5 + 涨幅0.5%~分板涨停阈值 + 收在日内上半区），三维共振才入选。<br>
       主线板块引擎：行业板块按近60日涨幅取Top6（=月内主线）→ 逐板块取成交额Top15成分股 → 硬过滤（盈利/市值≥80亿/非涨停）→ 因子打分，<code>★</code> 标记各板块综合分第一的龙头推荐。<br>
       交易价格引擎：以今日高/低/昨收计算枢轴点 <code>P=(H+L+C)/3</code>、支撑 <code>S1=2P-H</code>、压力 <code>R1=2P-L</code> →
@@ -491,7 +491,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '4.4.3';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '4.5.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -875,7 +875,7 @@ async function scanMarket(){
     recordHistory._full = SCORED;                    // 切片前缓存完整横截面，供归档算全截面IC
     SCORED = SCORED.sort((a,b)=>b.score-a.score).slice(0,20);   // 只展示Top20
     TABS.market.scored = SCORED; TABS.market.time = new Date().toTimeString().slice(0,5);
-    saveTabs(); recordHistory(); runSimTrade(SCORED);
+    saveTabs(); recordHistory(); runSimTrade();
     if(activeTab!=='market') switchTab('market'); else render();
     document.getElementById('modeTag').textContent='全市场 Top20 · '+TABS.market.time;
     document.getElementById('upd').textContent=new Date().toTimeString().slice(0,5);
@@ -1287,7 +1287,7 @@ async function indexTrend(){
     MARKET.ma20 = ma20; MARKET.date = dates[dates.length-1];
     const el = document.getElementById('marketBanner');
     if(el) el.textContent = MARKET.phase==='weak'
-      ? '🌧 市场弱势（上证跌破20日线）：模拟盘自动收紧买入门槛、提高现金纪律'
+      ? '🌧 市场弱势（上证跌破20日线）：模拟盘提高现金纪律（25%），买入更谨慎'
       : (MARKET.phase==='strong' ? '☀ 市场强势（上证站上20日线）' : '');
   }catch(e){}
 }
@@ -2081,30 +2081,35 @@ function renderHistory(){
 
 /* ============================================================
    智能模拟持仓引擎：虚拟资金自动买卖，实盘数据验证算法
-   规则：初始5万，评分>=70买入，评分<50或破止损卖出
+   规则（v4.5）：初始5万，买入源=前瞻预测Top10（按预测分排名，需当日运行预测）
+        持仓满20个交易日、破止损或技术面强空卖出；技术过滤（v4.4）保留
         评分加权仓位，单票上限30%，现金≥15%
    ============================================================ */
-async function runSimTrade(scored){
+async function runSimTrade(){
   if(!SIM.enabled) return;
   const today = todayCN();
   if(SIM.lastSettle === today) return; // 一天只交易一次
   if(!SIM.startDate) SIM.startDate = today;
+  /* 【v4.5·买入源切换】买入池改为前瞻预测Top20（按预测分排名），全市场扫描榜不再驱动模拟盘。
+     当日未运行预测则只执行卖出/风控，不买入 */
+  const fcst = (TABS.fcst && TABS.fcst.scored) || [];
+  const fcstToday = (typeof FCST_HIST!=='undefined') && FCST_HIST.records.some(r=>r.date===today);
+  // 持仓天数逐日累加（本函数每交易日至多跑一遍），满20个交易日强制卖出
+  Object.values(SIM.positions).forEach(p=>{ p.daysHeld = (p.daysHeld||0)+1; });
 
   const bench = LAST_IDX ? LAST_IDX.sh : 0;
-  /* 【v4.1·市场状态护栏】弱势市场（上证跌破20日线）：现金纪律 15%→25%，买入门槛 70→75 */
+  /* 【v4.1·市场状态护栏】弱势市场（上证跌破20日线）：现金纪律 15%→25% */
   const weakMkt = MARKET.phase === 'weak';
   const cashFloorRate = weakMkt ? 0.25 : 0.15;
-  const buyThreshold = weakMkt ? 75 : 70;
   const cashFloor = SIM.cash * cashFloorRate; // 保留现金
   const tradableCash = Math.max(0, SIM.cash - cashFloor);
 
   // 当前持仓代码集合
   const heldCodes = Object.keys(SIM.positions);
-  const topCodes = new Set(scored.map(s=>s.code));
 
-  // ---- 卖出：评分<50 或 破止损 或 掉出Top20 或 技术面强空（v4.4） ----
-  // v3.5.1 修复：掉出Top20的持仓不在扫描结果里，无报价 → 先补拉实时价再卖，杜绝0元成交
-  const missing = heldCodes.filter(c=>!scored.find(s=>s.code===c));
+  // ---- 卖出：持仓满20天 或 破止损 或 技术面强空（v4.4 技术条件不变） ----
+  // v3.5.1 修复：持仓票不在预测榜里，无报价 → 先补拉实时价再卖，杜绝0元成交
+  const missing = heldCodes.filter(c=>!fcst.find(s=>s.code===c));
   const livePrice = {};
   for(let i=0;i<missing.length;i+=10){
     try{
@@ -2124,13 +2129,12 @@ async function runSimTrade(scored){
   }
   heldCodes.forEach(code=>{
     const pos = SIM.positions[code];
-    const r = scored.find(s=>s.code===code);
+    const r = fcst.find(s=>s.code===code);
     const plan = r ? tradePlan(r) : null;
     // 价格三级回退：扫描价 → 实时补拉价 → 最近已知价 → 成本价（任何情况下不为0）
     const price = r ? r.price : (livePrice[code] || pos.lastPrice || pos.cost);
     let reason = '';
-    if(!r) reason = '掉出Top20';
-    else if(r.score < 50) reason = '评分跌破50';
+    if((pos.daysHeld||0) >= 20) reason = '持仓满20天';
     else if(plan && price < +plan.stop) reason = '触发止损 '+plan.stop;
     else if(techHeld[code] && techHeld[code].verdict==='bearish' && techHeld[code].bear>=8)
       reason = '技术面强空 '+techHeld[code].text;
@@ -2144,8 +2148,9 @@ async function runSimTrade(scored){
     }
   });
 
-  // ---- 买入：Top20中评分达阈值且未持有、且技术面不做空的票（v4.4 技术过滤） ----
-  let buyList = scored.filter(s=>s.score>=buyThreshold && !SIM.positions[s.code]);
+  // ---- 买入：前瞻预测Top10（按预测分排名），当日未运行预测则不买入；技术面不做空（v4.4 过滤保留） ----
+  if(!fcstToday) toast('模拟盘：今日尚未运行前瞻预测，跳过买入（卖出与风控正常）');
+  let buyList = fcstToday ? fcst.slice(0,10).filter(s=>!SIM.positions[s.code]) : [];
   if(!buyList.length){ SIM.lastSettle = today; saveSim(); return; }
   const techBuy = {};
   if(techOn){
@@ -2162,6 +2167,7 @@ async function runSimTrade(scored){
   const scSum = buyList.reduce((a,s)=>a+s.score,0);
   const totalAsset = SIM.cash + Object.values(SIM.positions).reduce((a,p)=>a+p.qty*p.cost,0);
   for(const s of buyList){
+    const rank = fcst.findIndex(x=>x.code===s.code)+1;   // 预测榜排名，写进成交理由
     const maxSingle = totalAsset * 0.30; // 单票上限30%
     const targetVal = Math.min(maxSingle, tradableCash * (s.score/scSum));
     if(targetVal < 1000) continue; // 最小买入1000元
@@ -2180,9 +2186,9 @@ async function runSimTrade(scored){
     if(val + fee > SIM.cash) continue;
     SIM.cash -= val + fee;
     const tB = techBuy[s.code];
-    SIM.positions[s.code] = { code:s.code, name:s.name, qty, cost, date:today };
+    SIM.positions[s.code] = { code:s.code, name:s.name, qty, cost, date:today, daysHeld:0 };
     SIM.trades.push({date:today, code:s.code, name:s.name, type:'买入', price:cost, qty,
-      reason:'评分'+s.score+(tB?' ·技术'+tB.text:'')+(overW?' ·高价股单手放宽':'')+' ·费'+fee.toFixed(1), val:Math.round(val+fee)});
+      reason:'预测#'+rank+'·评分'+s.score+(tB?' ·技术'+tB.text:'')+(overW?' ·高价股单手放宽':'')+' ·费'+fee.toFixed(1), val:Math.round(val+fee)});
   }
 
   SIM.lastSettle = today;
