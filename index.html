@@ -491,7 +491,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '4.5.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '4.5.1';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -1119,6 +1119,8 @@ async function scanForecast(){
     toast(`预测完成：${universe.length}只进入横截面 → 输出Top20` +
       (r2!==null ? `（回归样本${pts.length}条，R²=${r2.toFixed(2)}）` : '（历史样本不足30条，暂只输出排名）'));
     fetchIndices();
+    /* 【v4.5.1】预测完成后主动触发模拟盘（force 放行"今日已结算"拦截）——先扫描后预测也能当天买入 */
+    if(SIM.enabled) runSimTrade(true);
   }catch(e){ toast('预测失败[v'+APP_VERSION+']：'+e.message); }
   progEnd();
   document.getElementById('fcstRun').disabled = false;
@@ -2085,17 +2087,22 @@ function renderHistory(){
         持仓满20个交易日、破止损或技术面强空卖出；技术过滤（v4.4）保留
         评分加权仓位，单票上限30%，现金≥15%
    ============================================================ */
-async function runSimTrade(){
+async function runSimTrade(force){
   if(!SIM.enabled) return;
   const today = todayCN();
-  if(SIM.lastSettle === today) return; // 一天只交易一次
+  /* force=true：预测完成后主动触发（当日可能已因"未预测"跳过结算一次，放行补买）。
+     普通入口仍一天一次 */
+  if(!force && SIM.lastSettle === today) return; // 一天只交易一次
   if(!SIM.startDate) SIM.startDate = today;
   /* 【v4.5·买入源切换】买入池改为前瞻预测Top20（按预测分排名），全市场扫描榜不再驱动模拟盘。
      当日未运行预测则只执行卖出/风控，不买入 */
   const fcst = (TABS.fcst && TABS.fcst.scored) || [];
   const fcstToday = (typeof FCST_HIST!=='undefined') && FCST_HIST.records.some(r=>r.date===today);
-  // 持仓天数逐日累加（本函数每交易日至多跑一遍），满20个交易日强制卖出
-  Object.values(SIM.positions).forEach(p=>{ p.daysHeld = (p.daysHeld||0)+1; });
+  // 持仓天数逐日累加（用 lastDayCount 守卫：force 补买/多次扫描同一天只累加一次），满20个交易日强制卖出
+  if(SIM.lastDayCount !== today){
+    Object.values(SIM.positions).forEach(p=>{ p.daysHeld = (p.daysHeld||0)+1; });
+    SIM.lastDayCount = today;
+  }
 
   const bench = LAST_IDX ? LAST_IDX.sh : 0;
   /* 【v4.1·市场状态护栏】弱势市场（上证跌破20日线）：现金纪律 15%→25% */
@@ -2149,8 +2156,12 @@ async function runSimTrade(){
   });
 
   // ---- 买入：前瞻预测Top10（按预测分排名），当日未运行预测则不买入；技术面不做空（v4.4 过滤保留） ----
-  if(!fcstToday) toast('模拟盘：今日尚未运行前瞻预测，跳过买入（卖出与风控正常）');
-  let buyList = fcstToday ? fcst.slice(0,10).filter(s=>!SIM.positions[s.code]) : [];
+  if(!fcstToday){
+    /* 不写 lastSettle：当天稍后运行预测会 force 补触发一次买入（v4.5.1 修复"先扫描后预测当天买不了"） */
+    if(SIM._noFcstToast !== today){ toast('模拟盘：今日尚未运行前瞻预测，先点"运行预测"才会买入（卖出与风控正常）'); SIM._noFcstToast = today; }
+    saveSim(); return;
+  }
+  let buyList = fcst.slice(0,10).filter(s=>!SIM.positions[s.code]);
   if(!buyList.length){ SIM.lastSettle = today; saveSim(); return; }
   const techBuy = {};
   if(techOn){

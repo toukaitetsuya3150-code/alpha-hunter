@@ -1,7 +1,7 @@
 {
-  "version": "4.5.0",
+  "version": "4.5.1",
   "minVersion": "3.0.0",
-  "updatedAt": "2026-09-21",
-  "changelog": "模拟交易买入源切换为前瞻预测Top10（按预测分排名，需当日运行预测）；新增持仓满20个交易日卖出；止损与技术面过滤保持不变；评分<50/掉出Top20两条旧卖出规则移除",
+  "updatedAt": "2026-09-22",
+  "changelog": "修复模拟盘无买入：预测完成后主动触发模拟交易（force放行当日已结算拦截），先扫描后预测当天也能买；未预测跳过路径不再写死lastSettle；持仓天数加每日累加守卫",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
