@@ -372,6 +372,10 @@
         <h3>预测准确率 / ACCURACY TRACKER</h3>
         <div id="fcstAcc" style="overflow-x:auto">暂无已结算的预测记录（预测归档满20个交易日后自动结算并计算准确率）</div>
       </div>
+      <div class="sa-box" style="margin-top:14px">
+        <h3>预测月度总结 / MONTHLY SUMMARY</h3>
+        <div id="fcstMonthly" style="overflow-x:auto"><span class="hint">暂无月度总结：预测归档满20个交易日结算后，按自然月自动汇总</span></div>
+      </div>
     </div>
 
     <!-- ===== 历史追踪视图 ===== -->
@@ -491,7 +495,7 @@
    ============================================================ */
 
 /* ---- 版本管理：自动迁移 + 远程检查更新 ---- */
-const APP_VERSION = '4.5.2';        // 当前代码版本（x.y.z：大功能.小功能.修复）
+const APP_VERSION = '4.6.0';        // 当前代码版本（x.y.z：大功能.小功能.修复）
 const VERSION_URL = 'https://toukaitetsuya3150-code.github.io/alpha-hunter/version.json';
 const MIN_COMPAT  = '3.0.0';        // 低于此版本需清空重建
 
@@ -1251,6 +1255,55 @@ function renderFcstAcc(){
        <td>${r.winRate}%</td>
        <td style="color:var(--dim)">${r.n}</td></tr>`).join('') +
     '</tbody></table>';
+  renderFcstMonthly();
+}
+
+/* 【v4.6】预测月度总结：按自然月聚合已结算的预测记录，评估预测引擎的月度稳定性 */
+function renderFcstMonthly(){
+  const el = document.getElementById('fcstMonthly'); if(!el) return;
+  const done = FCST_HIST.records.filter(r=>r.checked);
+  if(!done.length){
+    el.innerHTML = '<span class="hint">暂无月度总结：预测归档满20个交易日结算后，按自然月自动汇总</span>';
+    return;
+  }
+  const avg = a=>a.reduce((x,y)=>x+y,0)/a.length;
+  const months = {};
+  done.forEach(r=>{
+    const m = (r.date||'').slice(0,7);
+    if(!m) return;
+    (months[m] = months[m] || []).push(r);
+  });
+  const rows = Object.keys(months).sort().reverse().map(m=>{
+    const recs = months[m];
+    const ics = recs.map(r=>r.ic).filter(x=>x!==null);
+    return {
+      m, n:recs.length,
+      avgIc: ics.length ? avg(ics) : null,
+      icPos: ics.length ? ics.filter(x=>x>0).length/ics.length*100 : null,
+      avgEx: avg(recs.map(r=>r.avgEx)),
+      avgWin: avg(recs.map(r=>+r.winRate))
+    };
+  });
+  /* 月度评价：平均超额最高的月份标 🥇，最低的标 ⚠️；IC>0.03 视为预测有效 */
+  const best = rows.reduce((a,b)=>!a||b.avgEx>a.avgEx?b:a, null);
+  const worst = rows.reduce((a,b)=>!a||b.avgEx<a.avgEx?b:a, null);
+  const tag = r=>{
+    if(rows.length>1 && r===best) return ' 🥇';
+    if(rows.length>1 && r===worst && r.avgEx<0) return ' ⚠️';
+    return r.avgIc!==null && r.avgIc>0.03 ? ' ✅' : '';
+  };
+  el.innerHTML =
+    '<table><thead><tr><th style="text-align:left">月份</th><th>结算期数</th><th>平均IC</th><th>IC&gt;0占比</th><th>Top20平均超额</th><th>胜率</th><th>评价</th></tr></thead><tbody>' +
+    rows.map(r=>`<tr>
+      <td style="text-align:left" class="mono">${r.m}</td>
+      <td>${r.n}</td>
+      <td class="${r.avgIc===null?'':(r.avgIc>=0?'up':'down')}">${r.avgIc===null?'—':r.avgIc.toFixed(3)}</td>
+      <td>${r.icPos===null?'—':r.icPos.toFixed(0)+'%'}</td>
+      <td class="${r.avgEx>=0?'up':'down'}">${r.avgEx>=0?'+':''}${r.avgEx.toFixed(2)}%</td>
+      <td>${r.avgWin.toFixed(1)}%</td>
+      <td style="color:var(--dim)">${tag(r)||'—'}</td></tr>`).join('') +
+    '</tbody></table>' +
+    '<div class="hint" style="margin-top:8px">每月至少积累 2~3 期结算后月度数据才有统计意义；🥇=当月超额最高的月份，⚠️=平均超额为负的月份，✅=平均IC&gt;0.03 预测有效。</div>';
 }
 
 

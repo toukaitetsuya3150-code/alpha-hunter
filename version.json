@@ -1,7 +1,7 @@
 {
-  "version": "4.5.2",
+  "version": "4.6.0",
   "minVersion": "3.0.0",
   "updatedAt": "2026-09-23",
-  "changelog": "模拟交易持仓卖出周期由20个交易日改为5个交易日（卖出判断daysHeld>=5，UI文案同步；预测准确率结算的20天不变）",
+  "changelog": "前瞻预测新增月度总结：按自然月聚合已结算预测记录（期数/平均IC/IC>0占比/平均超额/胜率/月度评价），自动更新无需手动",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
