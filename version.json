@@ -1,7 +1,7 @@
 {
-  "version": "4.5.1",
+  "version": "4.5.2",
   "minVersion": "3.0.0",
-  "updatedAt": "2026-09-22",
-  "changelog": "修复模拟盘无买入：预测完成后主动触发模拟交易（force放行当日已结算拦截），先扫描后预测当天也能买；未预测跳过路径不再写死lastSettle；持仓天数加每日累加守卫",
+  "updatedAt": "2026-09-23",
+  "changelog": "模拟交易持仓卖出周期由20个交易日改为5个交易日（卖出判断daysHeld>=5，UI文案同步；预测准确率结算的20天不变）",
   "downloadUrl": "https://toukaitetsuya3150-code.github.io/alpha-hunter/"
 }
